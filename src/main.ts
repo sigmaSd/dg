@@ -2,7 +2,6 @@ import {
   AdwApplicationWindow,
   Application,
   Box,
-  Button,
   Entry,
   GTK_ORIENTATION_VERTICAL,
   HeaderBar,
@@ -10,14 +9,16 @@ import {
   ListBox,
   ListBoxRow,
   ScrolledWindow,
+  SimpleAction,
   ToolbarView,
   Widget,
 } from "@sigmasd/gtk";
 import { EventLoop } from "@sigmasd/gtk/eventloop";
-import { AppInfo, getApps } from "./apps.ts";
+import { SearchResult, Source } from "./sources/interface.ts";
+import { AppSource } from "./sources/apps.ts";
+import { FirefoxSource } from "./sources/firefox.ts";
 
 const APP_ID = "com.mrcool.Launcher";
-// App flags 0 = G_APPLICATION_FLAGS_NONE
 const APP_FLAGS = 0;
 
 class LauncherApp {
@@ -25,37 +26,48 @@ class LauncherApp {
   #win?: AdwApplicationWindow;
   #eventLoop: EventLoop;
   #listBox?: ListBox;
-  #allApps: AppInfo[] = [];
   #searchEntry?: Entry;
+  
+  #sources: Map<string, Source> = new Map();
+  #currentResults: SearchResult[] = [];
 
   constructor() {
     this.#app = new Application(APP_ID, APP_FLAGS);
     this.#eventLoop = new EventLoop({ pollInterval: 16 });
 
+    // Initialize sources
+    this.#sources.set("apps", new AppSource());
+    this.#sources.set("firefox", new FirefoxSource());
+
     this.#app.onActivate(() => {
       this.#buildUI();
-      this.#loadApps();
+      this.#initSources();
     });
+  }
+
+  async #initSources() {
+    console.log("Initializing sources...");
+    for (const source of this.#sources.values()) {
+      await source.init();
+    }
+    // Initial load (default to apps)
+    this.#updateSearch("");
   }
 
   #buildUI() {
     if (this.#win) return;
 
     this.#win = new AdwApplicationWindow(this.#app);
-    this.#win.setTitle("App Launcher");
+    this.#win.setTitle("Launcher");
     this.#win.setDefaultSize(600, 500);
 
-    // Main layout with ToolbarView (standard for Adwaita apps)
     const toolbarView = new ToolbarView();
-    
-    // Header Bar
     const headerBar = new HeaderBar();
     toolbarView.addTopBar(headerBar);
 
-    // Content container
     const contentBox = new Box(GTK_ORIENTATION_VERTICAL, 0);
     
-    // Search Entry area
+    // Search Entry
     const searchBox = new Box(GTK_ORIENTATION_VERTICAL, 0);
     searchBox.setMarginTop(12);
     searchBox.setMarginBottom(12);
@@ -63,28 +75,27 @@ class LauncherApp {
     searchBox.setMarginEnd(12);
 
     this.#searchEntry = new Entry();
-    this.#searchEntry.setProperty("placeholder-text", "Search applications...");
-    this.#searchEntry.onChanged(() => this.#filterApps());
-    // On Enter key, launch the first result
-    this.#searchEntry.onActivate(() => this.#launchFirstResult());
+    this.#searchEntry.setProperty("placeholder-text", "Search apps (or 'b ' for browser history)...");
+    this.#searchEntry.onChanged(() => this.#onSearchChanged());
+    this.#searchEntry.onActivate(() => this.#activateResult(0));
     
     searchBox.append(this.#searchEntry);
     contentBox.append(searchBox);
 
-    // List of apps
+    // Results List
     const scrolled = new ScrolledWindow();
-    scrolled.setProperty("vexpand", true); // Expand to fill space
+    scrolled.setProperty("vexpand", true);
+    scrolled.setProperty("hscrollbar-policy", 2); // GTK_POLICY_NEVER
     
     this.#listBox = new ListBox();
-    this.#listBox.setProperty("selection-mode", 1); // Single selection
+    this.#listBox.setProperty("selection-mode", 1);
     this.#listBox.setMarginTop(0);
     this.#listBox.setMarginBottom(12);
     this.#listBox.setMarginStart(12);
     this.#listBox.setMarginEnd(12);
-    // Add CSS class "content" logic if we had CSS provider, but we don't yet.
 
     this.#listBox.onRowActivated((_row, index) => {
-      this.#launchAppAtIndex(index);
+      this.#activateResult(index);
     });
 
     scrolled.setChild(this.#listBox);
@@ -93,125 +104,96 @@ class LauncherApp {
     toolbarView.setContent(contentBox);
     this.#win.setContent(toolbarView);
 
-    // Handle window close to stop event loop
     this.#win.onCloseRequest(() => {
       this.#eventLoop.stop();
-      return false; // Allow close
+      // Cleanup sources (e.g. close DB connections)
+      for (const source of this.#sources.values()) {
+        if ("cleanup" in source) {
+          (source as any).cleanup();
+        }
+      }
+      return false;
     });
 
     this.#win.present();
   }
 
-  async #loadApps() {
-    console.log("Loading apps...");
-    this.#allApps = await getApps();
-    console.log(`Found ${this.#allApps.length} apps.`);
-    this.#renderList(this.#allApps);
+  async #onSearchChanged() {
+    if (!this.#searchEntry) return;
+    const query = this.#searchEntry.getText();
+    await this.#updateSearch(query);
   }
 
-  #renderList(apps: AppInfo[]) {
+  async #updateSearch(query: string) {
+    let results: SearchResult[] = [];
+
+    // Parse Mode
+    if (query.startsWith("b ")) {
+      // Browser Mode
+      const term = query.substring(2);
+      const source = this.#sources.get("firefox");
+      if (source) {
+        results = await source.search(term);
+      }
+    } else {
+      // App Mode (Default)
+      const source = this.#sources.get("apps");
+      if (source) {
+        results = await source.search(query);
+      }
+    }
+
+    // Sort by score
+    results.sort((a, b) => b.score - a.score);
+    this.#currentResults = results;
+    this.#renderList(results);
+  }
+
+  #renderList(results: SearchResult[]) {
     if (!this.#listBox) return;
 
     // Clear existing children
-    // Note: Since we don't have a clear() method exposed yet on ListBox in this version,
-    // we iterate children. gtk_widget_get_first_child / next_sibling logic needed.
-    // However, the easier way in this binding if `remove` works is:
     let child = this.#listBox.getFirstChild();
     while (child) {
       const next = this.#listBox.getNextSibling(child);
-      // We need to wrap the raw pointer in a Widget to pass to remove
-      // But wait, remove takes a Widget wrapper. 
-      // The bindings for ListBox.remove take a Widget.
-      // We can create a temporary wrapper.
       const w = new Widget(child);
       this.#listBox.remove(w);
-      w.unref(); // Release the reference added by new Widget(child)
+      w.unref();
       child = next;
     }
 
-    for (const app of apps) {
+    for (const result of results) {
       const row = new ListBoxRow();
       
       const box = new Box(GTK_ORIENTATION_VERTICAL, 4);
-      box.setMarginTop(10);
-      box.setMarginBottom(10);
+      box.setMarginTop(8);
+      box.setMarginBottom(8);
       box.setMarginStart(10);
       box.setMarginEnd(10);
 
-      const nameLabel = new Label(app.name);
-      nameLabel.setProperty("xalign", 0); // Left align
-      // Make it bold using markup
-      nameLabel.setMarkup(`<b>${this.#escapeMarkup(app.name)}</b>`);
+      const titleLabel = new Label(result.title);
+      titleLabel.setProperty("xalign", 0);
+      titleLabel.setProperty("ellipsize", 3); // ELLIPSIZE_END
+      titleLabel.setMarkup(`<b>${this.#escapeMarkup(result.title)}</b>`);
       
-      const execLabel = new Label(app.exec);
-      execLabel.setProperty("xalign", 0);
-      // Smaller text? We don't have CSS classes easily, but can use markup
-      execLabel.setMarkup(`<span size="small" alpha="50%">${this.#escapeMarkup(app.exec)}</span>`);
+      const subtitleLabel = new Label(result.subtitle);
+      subtitleLabel.setProperty("xalign", 0);
+      subtitleLabel.setProperty("ellipsize", 3); // ELLIPSIZE_END
+      subtitleLabel.setMarkup(`<span size="small" alpha="50%">${this.#escapeMarkup(result.subtitle)}</span>`);
 
-      box.append(nameLabel);
-      box.append(execLabel);
+      box.append(titleLabel);
+      box.append(subtitleLabel);
       
       row.setChild(box);
       this.#listBox.append(row);
     }
   }
 
-  #filterApps() {
-    if (!this.#searchEntry) return;
-    const query = this.#searchEntry.getText().toLowerCase();
-    
-    const filtered = this.#allApps.filter(app => 
-      app.name.toLowerCase().includes(query) || 
-      app.exec.toLowerCase().includes(query)
-    );
-
-    this.#renderList(filtered);
-  }
-
-  #launchFirstResult() {
-    // If we have filtered results, launch the first one
-    if (!this.#searchEntry) return;
-    const query = this.#searchEntry.getText().toLowerCase();
-    const filtered = this.#allApps.filter(app => 
-      app.name.toLowerCase().includes(query) || 
-      app.exec.toLowerCase().includes(query)
-    );
-
-    if (filtered.length > 0) {
-      this.#launchApp(filtered[0]);
-    }
-  }
-
-  #launchAppAtIndex(index: number) {
-     // Need to find which app corresponds to this index in the CURRENT filtered list
-     if (!this.#searchEntry) return;
-     const query = this.#searchEntry.getText().toLowerCase();
-     const filtered = this.#allApps.filter(app => 
-       app.name.toLowerCase().includes(query) || 
-       app.exec.toLowerCase().includes(query)
-     );
-
-     if (index >= 0 && index < filtered.length) {
-       this.#launchApp(filtered[index]);
-     }
-  }
-
-  #launchApp(app: AppInfo) {
-    console.log(`Launching: ${app.name} (${app.exec})`);
-    try {
-      // Use sh -c to handle arguments in exec string
-      const command = new Deno.Command("sh", {
-        args: ["-c", `${app.exec} &`], // Run in background
-        stdin: "null",
-        stdout: "null",
-        stderr: "null",
-      });
-      command.spawn();
-      
-      // Close launcher after launch
+  #activateResult(index: number) {
+    if (index >= 0 && index < this.#currentResults.length) {
+      const result = this.#currentResults[index];
+      result.onActivate();
       this.#eventLoop.stop();
-    } catch (e) {
-      console.error(`Failed to launch ${app.name}:`, e);
     }
   }
 
