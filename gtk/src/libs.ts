@@ -406,6 +406,9 @@ export const gtk = Deno.dlopen(LIB_PATHS.gtk, {
     result: "void",
   },
   gtk_list_box_row_get_index: { parameters: ["pointer"], result: "i32" },
+  gtk_spinner_new: { parameters: [], result: "pointer" },
+  gtk_spinner_start: { parameters: ["pointer"], result: "void" },
+  gtk_spinner_stop: { parameters: ["pointer"], result: "void" },
   gtk_string_list_new: { parameters: ["pointer"], result: "pointer" },
   gtk_string_list_append: { parameters: ["pointer", "buffer"], result: "void" },
   gtk_string_list_get_string: {
@@ -481,6 +484,10 @@ export const adwaita = Deno.dlopen(LIB_PATHS.adwaita, {
     result: "void",
   },
   adw_toolbar_view_add_top_bar: {
+    parameters: ["pointer", "pointer"],
+    result: "void",
+  },
+  adw_toolbar_view_add_bottom_bar: {
     parameters: ["pointer", "pointer"],
     result: "void",
   },

@@ -1,9 +1,12 @@
 import { DatabaseSync } from "node:sqlite";
-import { SearchResult, Source } from "./interface.ts";
+import { SearchResult, Source } from "../interface.ts";
 
 export class FirefoxSource implements Source {
   id = "firefox";
   name = "Firefox History";
+  description = "Search browser history and bookmarks";
+  trigger = "b";
+
   #dbPath?: string;
   #db?: DatabaseSync;
   #tmpPath?: string;
@@ -73,9 +76,6 @@ export class FirefoxSource implements Source {
   }
 
   cleanup() {
-    // DatabaseSync doesn't have an explicit close in some versions of node:sqlite, 
-    // but in Deno's compatibility layer it might. 
-    // Based on Node 22 API, it is sync.
     if (this.#tmpPath) {
       try {
         Deno.removeSync(this.#tmpPath);

@@ -3,6 +3,7 @@ import {
   Application,
   Box,
   Entry,
+  GTK_ORIENTATION_HORIZONTAL,
   GTK_ORIENTATION_VERTICAL,
   HeaderBar,
   Label,
@@ -10,15 +11,15 @@ import {
   ListBoxRow,
   ScrolledWindow,
   SimpleAction,
+  Spinner,
   ToolbarView,
   Widget,
 } from "@sigmasd/gtk";
 import { EventLoop } from "@sigmasd/gtk/eventloop";
-import { SearchResult, Source } from "./sources/interface.ts";
-import { AppSource } from "./sources/apps.ts";
-import { FirefoxSource } from "./sources/firefox.ts";
+import { SearchResult, Source } from "./plugins/interface.ts";
+import { PluginLoader } from "./loader.ts";
 
-const APP_ID = "com.mrcool.Launcher";
+const APP_ID = "io.github.sigmasd.dg";
 const APP_FLAGS = 0;
 
 class LauncherApp {
@@ -27,22 +28,24 @@ class LauncherApp {
   #eventLoop: EventLoop;
   #listBox?: ListBox;
   #searchEntry?: Entry;
+  #statusLabel?: Label;
+  #spinner?: Spinner;
+  #bottomBox?: Box;
   
-  #sources: Map<string, Source> = new Map();
+  #loader: PluginLoader;
+  #plugins: Source[] = [];
   #currentResults: SearchResult[] = [];
+  #latestSearchId = 0;
 
   constructor() {
     this.#app = new Application(APP_ID, APP_FLAGS);
     this.#eventLoop = new EventLoop({ pollInterval: 16 });
-
-    // Initialize sources
-    this.#sources.set("apps", new AppSource());
-    this.#sources.set("firefox", new FirefoxSource());
+    this.#loader = new PluginLoader();
 
     this.#app.onActivate(() => {
       if (!this.#win) {
         this.#buildUI();
-        this.#initSources();
+        this.#initPlugins();
         this.#setupActions();
       }
       this.#win?.present();
@@ -52,18 +55,35 @@ class LauncherApp {
     });
   }
 
-  async #initSources() {
-    console.log("Initializing sources...");
-    for (const source of this.#sources.values()) {
-      await source.init();
-    }
+  async #initPlugins() {
+    console.log("Loading plugins...");
+    this.#setLoading(true, "Loading plugins...");
+    this.#plugins = await this.#loader.loadPlugins();
+    this.#setLoading(false);
     this.#updateSearch("");
+  }
+
+  #setLoading(loading: boolean, message?: string) {
+    if (this.#spinner) {
+      if (loading) this.#spinner.start();
+      else this.#spinner.stop();
+    }
+    if (this.#statusLabel) {
+      this.#statusLabel.setText(message || "");
+    }
+    if (this.#bottomBox) {
+      this.#bottomBox.setVisible(loading || !!message);
+    }
   }
 
   #setupActions() {
     // Quit Action (Ctrl+Q)
     const quitAction = new SimpleAction("quit");
     quitAction.connect("activate", () => {
+      if (this.#win) {
+        this.#win.destroy();
+        this.#win = undefined;
+      }
       this.#eventLoop.stop();
       this.#app.quit();
     });
@@ -83,7 +103,7 @@ class LauncherApp {
     if (this.#win) return;
 
     this.#win = new AdwApplicationWindow(this.#app);
-    this.#win.setTitle("Launcher");
+    this.#win.setTitle("DG");
     this.#win.setDefaultSize(600, 500);
 
     const toolbarView = new ToolbarView();
@@ -100,7 +120,7 @@ class LauncherApp {
     searchBox.setMarginEnd(12);
 
     this.#searchEntry = new Entry();
-    this.#searchEntry.setProperty("placeholder-text", "Search apps (or 'b ' for browser history)...");
+    this.#searchEntry.setProperty("placeholder-text", "Type to search apps, or 'b' for browser...");
     this.#searchEntry.onChanged(() => this.#onSearchChanged());
     this.#searchEntry.onActivate(() => this.#activateResult(0));
     
@@ -127,12 +147,28 @@ class LauncherApp {
     contentBox.append(scrolled);
 
     toolbarView.setContent(contentBox);
+
+    // Status Bar (Bottom)
+    this.#bottomBox = new Box(GTK_ORIENTATION_HORIZONTAL, 12);
+    this.#bottomBox.setMarginTop(8);
+    this.#bottomBox.setMarginBottom(8);
+    this.#bottomBox.setMarginStart(12);
+    this.#bottomBox.setMarginEnd(12);
+    this.#bottomBox.setVisible(false); // Hidden by default
+
+    this.#spinner = new Spinner();
+    this.#bottomBox.append(this.#spinner);
+
+    this.#statusLabel = new Label("");
+    this.#bottomBox.append(this.#statusLabel);
+
+    toolbarView.addBottomBar(this.#bottomBox);
+
     this.#win.setContent(toolbarView);
 
-    // Handle window close to hide instead of quit
     this.#win.onCloseRequest(() => {
       this.#win?.setVisible(false);
-      return true; // Keep the window alive (hidden)
+      return true;
     });
 
     this.#win.present();
@@ -145,25 +181,37 @@ class LauncherApp {
   }
 
   async #updateSearch(query: string) {
-    let results: SearchResult[] = [];
+    const searchId = ++this.#latestSearchId;
+    this.#setLoading(true, "Searching...");
 
-    // Parse Mode
-    if (query.startsWith("b ")) {
-      const term = query.substring(2);
-      const source = this.#sources.get("firefox");
-      if (source) {
-        results = await source.search(term);
-      }
+    let results: SearchResult[] = [];
+    
+    const parts = query.split(" ");
+    const trigger = parts[0];
+    const args = parts.slice(1).join(" ");
+
+    // Check if a plugin matches the specific trigger
+    const triggeredPlugin = this.#plugins.find(p => p.trigger === trigger);
+
+    if (triggeredPlugin) {
+      // Specific plugin search
+      results = await triggeredPlugin.search(args);
     } else {
-      const source = this.#sources.get("apps");
-      if (source) {
-        results = await source.search(query);
+      // Global search (plugins with no trigger)
+      const globalPlugins = this.#plugins.filter(p => !p.trigger);
+      for (const plugin of globalPlugins) {
+        const pluginResults = await plugin.search(query);
+        results = results.concat(pluginResults);
       }
     }
 
-    results.sort((a, b) => b.score - a.score);
-    this.#currentResults = results;
-    this.#renderList(results);
+    // Only update if this is the latest search
+    if (searchId === this.#latestSearchId) {
+      this.#setLoading(false);
+      results.sort((a, b) => b.score - a.score);
+      this.#currentResults = results;
+      this.#renderList(results);
+    }
   }
 
   #renderList(results: SearchResult[]) {
@@ -189,12 +237,12 @@ class LauncherApp {
 
       const titleLabel = new Label(result.title);
       titleLabel.setProperty("xalign", 0);
-      titleLabel.setProperty("ellipsize", 3); // ELLIPSIZE_END
+      titleLabel.setProperty("ellipsize", 3);
       titleLabel.setMarkup(`<b>${this.#escapeMarkup(result.title)}</b>`);
       
       const subtitleLabel = new Label(result.subtitle);
       subtitleLabel.setProperty("xalign", 0);
-      subtitleLabel.setProperty("ellipsize", 3); // ELLIPSIZE_END
+      subtitleLabel.setProperty("ellipsize", 3);
       subtitleLabel.setMarkup(`<span size="small" alpha="50%">${this.#escapeMarkup(result.subtitle)}</span>`);
 
       box.append(titleLabel);
@@ -221,17 +269,14 @@ class LauncherApp {
   }
 
   async run() {
-    // 1. Manually register to check if we are the primary instance
     this.#app.register();
 
     if (this.#app.getIsRemote()) {
       console.log("Remote instance detected. Activating primary instance...");
       this.#app.activate();
-      // 2. If remote, exit immediately. The signal has been sent.
       Deno.exit(0);
     }
 
-    // 3. If primary, start the event loop
     await this.#eventLoop.start(this.#app);
   }
 }

@@ -4,6 +4,7 @@
   },
   "imports": {
     "@sigmasd/gtk": "./gtk/src/gtk-ffi.ts",
-    "@sigmasd/gtk/eventloop": "./gtk/src/eventloop.ts"
+    "@sigmasd/gtk/eventloop": "./gtk/src/eventloop.ts",
+    "@std/path": "jsr:@std/path@^1.0.8"
   }
 }

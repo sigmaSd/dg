@@ -9,6 +9,12 @@ export interface SearchResult {
 export interface Source {
   id: string;
   name: string;
+  description?: string;
+  /**
+   * The prefix to trigger this source (e.g., "b", "calc").
+   * If undefined, this source is searched when no specific trigger is used (Global).
+   */
+  trigger?: string; 
   init(): Promise<void>;
   search(query: string): Promise<SearchResult[]>;
 }

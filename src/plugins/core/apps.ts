@@ -1,9 +1,12 @@
-import { AppInfo, getApps } from "../apps.ts";
-import { SearchResult, Source } from "./interface.ts";
+import { AppInfo, getApps } from "../../apps.ts";
+import { SearchResult, Source } from "../interface.ts";
 
 export class AppSource implements Source {
   id = "apps";
   name = "Applications";
+  description = "Search and launch installed applications";
+  trigger = undefined; // Global source
+
   #apps: AppInfo[] = [];
 
   async init(): Promise<void> {
@@ -22,7 +25,7 @@ export class AppSource implements Source {
     return matches.map(app => ({
       title: app.name,
       subtitle: app.exec,
-      score: app.name.toLowerCase().startsWith(q) ? 100 : 50, // Higher score for prefix match
+      score: app.name.toLowerCase().startsWith(q) ? 100 : 50,
       onActivate: () => {
         console.log(`Launching: ${app.name}`);
         const command = new Deno.Command("sh", {

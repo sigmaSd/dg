@@ -591,6 +591,22 @@ export class Button extends Widget {
   }
 }
 
+// GTK Spinner
+export class Spinner extends Widget {
+  constructor() {
+    const ptr = gtk.symbols.gtk_spinner_new();
+    super(ptr);
+  }
+
+  start(): void {
+    gtk.symbols.gtk_spinner_start(this.ptr);
+  }
+
+  stop(): void {
+    gtk.symbols.gtk_spinner_stop(this.ptr);
+  }
+}
+
 // GTK CheckButton
 export class CheckButton extends Widget {
   constructor(label?: string) {
@@ -989,6 +1005,10 @@ export class ToolbarView extends Widget {
 
   addTopBar(topBar: Widget): void {
     adwaita.symbols.adw_toolbar_view_add_top_bar(this.ptr, topBar.ptr);
+  }
+
+  addBottomBar(bottomBar: Widget): void {
+    adwaita.symbols.adw_toolbar_view_add_bottom_bar(this.ptr, bottomBar.ptr);
   }
 }
 
