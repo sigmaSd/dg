@@ -338,6 +338,10 @@ export class Widget extends GObject {
   queueDraw(): void {
     gtk.symbols.gtk_widget_queue_draw(this.ptr);
   }
+
+  grabFocus(): boolean {
+    return gtk.symbols.gtk_widget_grab_focus(this.ptr);
+  }
 }
 
 // AdwApplication extends GtkApplication extends GApplication extends GObject
@@ -363,6 +367,10 @@ export class Application extends GObject {
 
   activate(): void {
     gio.symbols.g_application_activate(this.ptr);
+  }
+
+  getIsRemote(): boolean {
+    return gio.symbols.g_application_get_is_remote(this.ptr);
   }
 
   inhibit(window: Widget | null, flags: number, reason: string): number {

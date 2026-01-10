@@ -214,6 +214,7 @@ export const gio = Deno.dlopen(LIB_PATHS.gio, {
     result: "bool",
   },
   g_application_activate: { parameters: ["pointer"], result: "void" },
+  g_application_get_is_remote: { parameters: ["pointer"], result: "bool" },
   g_simple_action_new: {
     parameters: ["buffer", "pointer"],
     result: "pointer",
@@ -362,6 +363,7 @@ export const gtk = Deno.dlopen(LIB_PATHS.gtk, {
     parameters: ["pointer", "i32", "i32"],
     result: "void",
   },
+  gtk_widget_grab_focus: { parameters: ["pointer"], result: "bool" },
   gtk_widget_unparent: { parameters: ["pointer"], result: "void" },
   gtk_widget_get_first_child: { parameters: ["pointer"], result: "pointer" },
   gtk_widget_get_next_sibling: { parameters: ["pointer"], result: "pointer" },

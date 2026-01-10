@@ -40,8 +40,15 @@ class LauncherApp {
     this.#sources.set("firefox", new FirefoxSource());
 
     this.#app.onActivate(() => {
-      this.#buildUI();
-      this.#initSources();
+      if (!this.#win) {
+        this.#buildUI();
+        this.#initSources();
+        this.#setupActions();
+      }
+      this.#win?.present();
+      // Clear search and focus when re-opening
+      this.#searchEntry?.setText("");
+      this.#searchEntry?.grabFocus();
     });
   }
 
@@ -50,8 +57,26 @@ class LauncherApp {
     for (const source of this.#sources.values()) {
       await source.init();
     }
-    // Initial load (default to apps)
     this.#updateSearch("");
+  }
+
+  #setupActions() {
+    // Quit Action (Ctrl+Q)
+    const quitAction = new SimpleAction("quit");
+    quitAction.connect("activate", () => {
+      this.#eventLoop.stop();
+      this.#app.quit();
+    });
+    this.#app.addAction(quitAction);
+    this.#app.setAccelsForAction("app.quit", ["<Control>q"]);
+
+    // Hide Action (Escape)
+    const hideAction = new SimpleAction("hide");
+    hideAction.connect("activate", () => {
+      this.#win?.setVisible(false);
+    });
+    this.#app.addAction(hideAction);
+    this.#app.setAccelsForAction("app.hide", ["Escape"]);
   }
 
   #buildUI() {
@@ -104,15 +129,10 @@ class LauncherApp {
     toolbarView.setContent(contentBox);
     this.#win.setContent(toolbarView);
 
+    // Handle window close to hide instead of quit
     this.#win.onCloseRequest(() => {
-      this.#eventLoop.stop();
-      // Cleanup sources (e.g. close DB connections)
-      for (const source of this.#sources.values()) {
-        if ("cleanup" in source) {
-          (source as any).cleanup();
-        }
-      }
-      return false;
+      this.#win?.setVisible(false);
+      return true; // Keep the window alive (hidden)
     });
 
     this.#win.present();
@@ -129,21 +149,18 @@ class LauncherApp {
 
     // Parse Mode
     if (query.startsWith("b ")) {
-      // Browser Mode
       const term = query.substring(2);
       const source = this.#sources.get("firefox");
       if (source) {
         results = await source.search(term);
       }
     } else {
-      // App Mode (Default)
       const source = this.#sources.get("apps");
       if (source) {
         results = await source.search(query);
       }
     }
 
-    // Sort by score
     results.sort((a, b) => b.score - a.score);
     this.#currentResults = results;
     this.#renderList(results);
@@ -152,7 +169,6 @@ class LauncherApp {
   #renderList(results: SearchResult[]) {
     if (!this.#listBox) return;
 
-    // Clear existing children
     let child = this.#listBox.getFirstChild();
     while (child) {
       const next = this.#listBox.getNextSibling(child);
@@ -193,7 +209,7 @@ class LauncherApp {
     if (index >= 0 && index < this.#currentResults.length) {
       const result = this.#currentResults[index];
       result.onActivate();
-      this.#eventLoop.stop();
+      this.#win?.setVisible(false);
     }
   }
 
@@ -205,6 +221,17 @@ class LauncherApp {
   }
 
   async run() {
+    // 1. Manually register to check if we are the primary instance
+    this.#app.register();
+
+    if (this.#app.getIsRemote()) {
+      console.log("Remote instance detected. Activating primary instance...");
+      this.#app.activate();
+      // 2. If remote, exit immediately. The signal has been sent.
+      Deno.exit(0);
+    }
+
+    // 3. If primary, start the event loop
     await this.#eventLoop.start(this.#app);
   }
 }
