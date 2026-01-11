@@ -58,7 +58,7 @@ class LauncherApp {
   async #initPlugins() {
     console.log("Loading plugins...");
     this.#setLoading(true, "Loading plugins...");
-    this.#plugins = await this.#loader.loadPlugins();
+    this.#plugins = await this.#loader.loadPlugins(this.#win);
     this.#setLoading(false);
     this.#updateSearch("");
   }
@@ -253,10 +253,10 @@ class LauncherApp {
     }
   }
 
-  #activateResult(index: number) {
+  async #activateResult(index: number) {
     if (index >= 0 && index < this.#currentResults.length) {
       const result = this.#currentResults[index];
-      result.onActivate();
+      await result.onActivate();
       this.#win?.setVisible(false);
     }
   }

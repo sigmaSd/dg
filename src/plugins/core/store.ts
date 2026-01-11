@@ -1,5 +1,8 @@
 import { SearchResult, Source } from "../interface.ts";
 import { ConfigManager } from "../../config.ts";
+import { WorkerSource } from "../worker/host.ts";
+import { promptPermissions } from "../../utils/permissions.ts";
+import { AdwApplicationWindow } from "@sigmasd/gtk";
 
 export class StoreSource implements Source {
   id = "store";
@@ -13,10 +16,12 @@ export class StoreSource implements Source {
   #abortController: AbortController | null = null;
   #lastResults: SearchResult[] = [];
   #isSearching = false;
+  #window?: AdwApplicationWindow;
 
-  async init(): Promise<void> {
+  async init(window?: AdwApplicationWindow): Promise<void> {
+    this.#window = window;
     const config = await this.#configManager.read();
-    this.#installedPlugins = config.plugins;
+    this.#installedPlugins = config.plugins.map(p => p.url);
   }
 
   async search(query: string): Promise<SearchResult[]> {
@@ -26,7 +31,7 @@ export class StoreSource implements Source {
       this.#isSearching = false;
       
       const config = await this.#configManager.read();
-      this.#installedPlugins = config.plugins;
+      this.#installedPlugins = config.plugins.map(p => p.url);
 
       if (this.#installedPlugins.length === 0) {
         return [{
@@ -130,13 +135,29 @@ export class StoreSource implements Source {
           onActivate: async () => {
             if (isInstalled && isLatest) return;
             
-            if (installedVersion) {
-              console.log(`Updating ${fullUrl} to ${latest}...`);
-              await this.#configManager.removePlugin(installedVersion);
-            } else {
-              console.log(`Installing ${pinnedUrl}...`);
+            try {
+              console.log(`Fetching metadata for ${pinnedUrl}...`);
+              const meta = await WorkerSource.loadMetadata(pinnedUrl);
+              const permissions = meta.permissions || {};
+              
+              if (Object.keys(permissions).length > 0 && this.#window) {
+                 const accepted = await promptPermissions(this.#window, meta.name, permissions);
+                 if (!accepted) {
+                   console.log("Installation cancelled.");
+                   return;
+                 }
+              }
+
+              if (installedVersion) {
+                console.log(`Updating ${fullUrl} to ${latest}...`);
+                await this.#configManager.removePlugin(installedVersion);
+              } else {
+                console.log(`Installing ${pinnedUrl}...`);
+              }
+              await this.#configManager.addPlugin(pinnedUrl, permissions);
+            } catch (err) {
+              console.error("Failed to install plugin:", err);
             }
-            await this.#configManager.addPlugin(pinnedUrl);
           }
         });
       }
