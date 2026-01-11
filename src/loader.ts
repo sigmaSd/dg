@@ -1,5 +1,7 @@
 import { Source } from "./plugins/interface.ts";
 import { ConfigManager } from "./config.ts";
+import { WorkerSource } from "./plugins/worker/host.ts";
+import * as path from "@std/path";
 
 // Import core plugins statically
 import { AppSource } from "./plugins/core/apps.ts";
@@ -16,32 +18,37 @@ export class PluginLoader {
     // 1. Load Core Plugins
     this.#plugins.push(new AppSource());
     this.#plugins.push(new FirefoxSource());
-    this.#plugins.push(new StoreSource()); // We'll create this next
+    this.#plugins.push(new StoreSource()); 
 
     // 2. Load User Plugins from config
     const config = await this.#configManager.read();
     
     for (const url of config.plugins) {
       try {
-        console.log(`Loading plugin: ${url}`);
-        // Dynamic import supports http/https/jsr (via import map or directly if supported)
-        // For JSR, we might need to handle it carefully if not using import maps, 
-        // but Deno handles `jsr:` specifiers in dynamic imports if the environment is set up.
-        // `deno run` supports it.
-        const module = await import(url);
+        console.log(`Loading plugin metadata: ${url}`);
         
-        // Expect default export to be the class
-        if (module.default && typeof module.default === "function") {
-          // Instantiate
-          const plugin = new module.default();
-          if (this.#isValidSource(plugin)) {
-            this.#plugins.push(plugin);
-          } else {
-            console.warn(`Plugin ${url} does not implement Source interface correctly.`);
-          }
-        } else {
-           console.warn(`Plugin ${url} does not export a default class.`);
+        // Resolve absolute path if it's a local file
+        let pluginPath = url;
+        const isRemote = url.startsWith("http") || url.startsWith("https") || url.startsWith("jsr:") || url.startsWith("npm:");
+        
+        if (!isRemote && !url.startsWith("file://")) {
+             // If it's a relative path, resolve it relative to CWD or config?
+             // For now, assume absolute or CWD relative
+             pluginPath = path.resolve(url);
+             pluginPath = `file://${pluginPath}`;
         }
+
+        // 1. Load Metadata (Safe Sandbox)
+        const meta = await WorkerSource.loadMetadata(pluginPath);
+        console.log(`Plugin '${meta.name}' requests permissions:`, meta.permissions);
+
+        // TODO: Show UI Dialog here to ask user for permission
+        // For now, we auto-approve
+        
+        // 2. Initialize Worker
+        const plugin = new WorkerSource(pluginPath, meta);
+        this.#plugins.push(plugin);
+
       } catch (e) {
         console.error(`Failed to load plugin ${url}:`, e);
       }
@@ -58,9 +65,5 @@ export class PluginLoader {
     }
 
     return this.#plugins;
-  }
-
-  #isValidSource(obj: any): obj is Source {
-    return typeof obj.search === "function" && typeof obj.init === "function";
   }
 }

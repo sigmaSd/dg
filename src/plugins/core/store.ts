@@ -37,15 +37,22 @@ export class StoreSource implements Source {
         }];
       }
 
-      return this.#installedPlugins.map(url => ({
-        title: url,
-        subtitle: "Installed - Press Enter to Remove",
-        score: 100,
-        onActivate: async () => {
-          console.log(`Removing plugin: ${url}`);
-          await this.#configManager.removePlugin(url);
-        }
-      }));
+      return this.#installedPlugins.map(url => {
+        // Parse version from URL like jsr:@scope/pkg@version
+        const match = url.match(/jsr:@([^/]+)\/([^@]+)@(.+)/);
+        const displayTitle = match ? `@${match[1]}/${match[2]}` : url;
+        const displayVersion = match ? `v${match[3]}` : "unknown version";
+
+        return {
+          title: displayTitle,
+          subtitle: `${displayVersion} - Press Enter to Remove`,
+          score: 100,
+          onActivate: async () => {
+            console.log(`Removing plugin: ${url}`);
+            await this.#configManager.removePlugin(url);
+          }
+        };
+      });
     }
 
     // Debounce logic within the async search
@@ -87,21 +94,53 @@ export class StoreSource implements Source {
         }];
       }
 
-      return filtered.map(item => {
-        const fullUrl = `jsr:@${item.scope}/${item.name}`;
-        const isInstalled = this.#installedPlugins.includes(fullUrl);
+      const results: SearchResult[] = [];
+      for (const item of filtered) {
+        if (signal.aborted) break;
 
-        return {
+        // Fetch latest version from meta.json
+        let latest = "latest";
+        try {
+          const metaResp = await fetch(`https://jsr.io/@${item.scope}/${item.name}/meta.json`, { signal });
+          if (metaResp.ok) {
+            const meta = await metaResp.json();
+            latest = meta.latest;
+          }
+        } catch { /* fallback to @latest */ }
+
+        const fullUrl = `jsr:@${item.scope}/${item.name}`;
+        const pinnedUrl = `${fullUrl}@${latest}`;
+        
+        // Check if ANY version of this plugin is installed
+        const installedVersion = this.#installedPlugins.find(p => p.startsWith(fullUrl));
+        const isInstalled = !!installedVersion;
+        const isLatest = installedVersion === pinnedUrl;
+
+        let subtitle = item.description || "No description";
+        if (isInstalled) {
+          subtitle = isLatest ? `[INSTALLED v${latest}] ${subtitle}` : `[UPDATE AVAILABLE to v${latest}] ${subtitle}`;
+        } else {
+          subtitle = `[v${latest}] ${subtitle}`;
+        }
+
+        results.push({
           title: `@${item.scope}/${item.name}`,
-          subtitle: (isInstalled ? "[INSTALLED] " : "") + (item.description || "No description"),
+          subtitle,
           score: 10,
           onActivate: async () => {
-            if (isInstalled) return;
-            console.log(`Installing ${fullUrl}...`);
-            await this.#configManager.addPlugin(fullUrl);
+            if (isInstalled && isLatest) return;
+            
+            if (installedVersion) {
+              console.log(`Updating ${fullUrl} to ${latest}...`);
+              await this.#configManager.removePlugin(installedVersion);
+            } else {
+              console.log(`Installing ${pinnedUrl}...`);
+            }
+            await this.#configManager.addPlugin(pinnedUrl);
           }
-        };
-      });
+        });
+      }
+      return results;
     } catch (e) {
       if (e.name === 'AbortError') return this.#lastResults;
       console.error("JSR Search failed", e);

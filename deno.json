@@ -1,6 +1,14 @@
 {
+  "name": "@sigmasd/lab",
+  "version": "0.1.7",
+  "license": "MIT",
+  "exports": {
+    "./interface": "./src/plugins/interface.ts",
+    "./worker/client": "./src/plugins/worker/client.ts",
+    "./worker/host": "./src/plugins/worker/host.ts"
+  },
   "tasks": {
-    "start": "deno run --allow-all --unstable-ffi src/main.ts"
+    "start": "deno run --allow-all --no-prompt src/main.ts"
   },
   "imports": {
     "@sigmasd/gtk": "./gtk/src/gtk-ffi.ts",
