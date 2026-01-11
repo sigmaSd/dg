@@ -1,8 +1,9 @@
 {
   "name": "@sigmasd/dg",
-  "version": "0.1.7",
+  "version": "1.0.0",
   "license": "MIT",
   "exports": {
+    ".": "./src/main.ts",
     "./interface": "./src/plugins/interface.ts",
     "./worker/client": "./src/plugins/worker/client.ts",
     "./worker/host": "./src/plugins/worker/host.ts"
