@@ -1,4 +1,4 @@
-import { assertEquals } from "jsr:@std/assert";
+import { assertEquals } from "@std/assert";
 import { CalculatorSource } from "../src/plugins/core/calculator.ts";
 
 Deno.test("Calculator plugin", async (t) => {
@@ -26,7 +26,7 @@ Deno.test("Calculator plugin", async (t) => {
     assertEquals(results.length, 1);
     assertEquals(results[0].title, "30");
   });
-  
+
   await t.step("invalid expression", async () => {
     const results = await calc.search("2 + abc");
     assertEquals(results.length, 0);

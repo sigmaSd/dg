@@ -153,17 +153,23 @@ export class GObject {
     }
   }
 
-  connect(signal: string, callback: (...args: unknown[]) => unknown): number {
+  connect(
+    signal: string,
+    callback: (...args: Deno.PointerValue[]) => void,
+  ): number {
     const signalCStr = cstr(signal);
     const cb = new Deno.UnsafeCallback(
       {
         parameters: ["pointer", "pointer", "pointer", "pointer", "pointer"],
         result: "void",
       } as Deno.UnsafeCallbackDefinition,
-      (_objectPtr: Deno.PointerValue, ...args: Deno.PointerValue[]) => {
-        // Pass the raw pointer arguments to the callback
-        // Higher-level wrappers will convert these as needed
-        callback(...args);
+      (
+        _objectPtr: number | bigint | boolean | Uint8Array | Deno.PointerValue,
+        ...args: (number | bigint | boolean | Uint8Array | Deno.PointerValue)[]
+      ) => {
+        // First arg is the object pointer, rest are signal parameters
+        // Pass only the signal parameters to the callback
+        callback(...(args as Deno.PointerValue[]));
       },
     );
 
@@ -495,12 +501,8 @@ export class Window extends Widget {
 // LibAdwaita Window extends GtkWindow
 export class AdwWindow extends Window {
   constructor(ptr?: Deno.PointerValue) {
-    if (ptr) {
-      super(ptr);
-    } else {
-      const newPtr = adwaita.symbols.adw_window_new();
-      super(newPtr);
-    }
+    const actualPtr = ptr ?? adwaita.symbols.adw_window_new();
+    super(actualPtr);
   }
 
   setContent(content: Widget): void {
@@ -762,7 +764,8 @@ export class CairoContext {
 
 // GTK DrawingArea
 export class DrawingArea extends Widget {
-  private drawCallback?: Deno.UnsafeCallback;
+  // deno-lint-ignore no-explicit-any
+  private drawCallback?: Deno.UnsafeCallback<any>;
 
   constructor() {
     const ptr = gtk.symbols.gtk_drawing_area_new();
@@ -781,7 +784,7 @@ export class DrawingArea extends Widget {
       {
         parameters: ["pointer", "pointer", "i32", "i32", "pointer"],
         result: "void",
-      } as Deno.UnsafeCallbackDefinition,
+      } as const,
       (
         _areaPtr: Deno.PointerValue,
         crPtr: Deno.PointerValue,

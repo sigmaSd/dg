@@ -1,15 +1,15 @@
-import { SearchResult, Source } from "../interface.ts";
+import type { SearchResult, Source } from "../interface.ts";
 import { ConfigManager } from "../../config.ts";
 import { WorkerSource } from "../worker/host.ts";
 import { promptPermissions } from "../../utils/permissions.ts";
-import { AdwApplicationWindow } from "@sigmasd/gtk";
+import type { AdwApplicationWindow } from "@sigmasd/gtk";
 
 export class StoreSource implements Source {
   id = "store";
   name = "DG Plugin Store";
   description = "Search and install dg-plugins from JSR";
   trigger = "store";
-  
+
   #configManager = new ConfigManager();
   #installedPlugins: string[] = [];
   #debounceTimer: number | null = null;
@@ -18,10 +18,10 @@ export class StoreSource implements Source {
   #isSearching = false;
   #window?: AdwApplicationWindow;
 
-  async init(window?: AdwApplicationWindow): Promise<void> {
-    this.#window = window;
+  async init(window?: unknown): Promise<void> {
+    this.#window = window as AdwApplicationWindow;
     const config = await this.#configManager.read();
-    this.#installedPlugins = config.plugins.map(p => p.url);
+    this.#installedPlugins = config.plugins.map((p) => p.url);
   }
 
   async search(query: string): Promise<SearchResult[]> {
@@ -29,20 +29,20 @@ export class StoreSource implements Source {
       if (this.#debounceTimer) clearTimeout(this.#debounceTimer);
       if (this.#abortController) this.#abortController.abort();
       this.#isSearching = false;
-      
+
       const config = await this.#configManager.read();
-      this.#installedPlugins = config.plugins.map(p => p.url);
+      this.#installedPlugins = config.plugins.map((p) => p.url);
 
       if (this.#installedPlugins.length === 0) {
         return [{
           title: "No plugins installed",
           subtitle: "Type 'store <query>' to find plugins on JSR",
           score: 0,
-          onActivate: () => {}
+          onActivate: () => {},
         }];
       }
 
-      return this.#installedPlugins.map(url => {
+      return this.#installedPlugins.map((url) => {
         // Parse version from URL like jsr:@scope/pkg@version
         const match = url.match(/jsr:@([^/]+)\/([^@]+)@(.+)/);
         const displayTitle = match ? `@${match[1]}/${match[2]}` : url;
@@ -56,7 +56,7 @@ export class StoreSource implements Source {
           onActivate: async () => {
             console.log(`Removing plugin: ${url}`);
             await this.#configManager.removePlugin(url);
-          }
+          },
         };
       });
     }
@@ -70,7 +70,10 @@ export class StoreSource implements Source {
     return new Promise((resolve) => {
       this.#debounceTimer = setTimeout(async () => {
         this.#abortController = new AbortController();
-        const results = await this.#performSearch(query, this.#abortController.signal);
+        const results = await this.#performSearch(
+          query,
+          this.#abortController.signal,
+        );
         this.#lastResults = results;
         this.#isSearching = false;
         resolve(results);
@@ -78,25 +81,32 @@ export class StoreSource implements Source {
     });
   }
 
-  async #performSearch(query: string, signal: AbortSignal): Promise<SearchResult[]> {
+  async #performSearch(
+    query: string,
+    signal: AbortSignal,
+  ): Promise<SearchResult[]> {
     try {
       const resp = await fetch(
-        `https://jsr.io/api/packages?query=dg-plugin-${encodeURIComponent(query)}`,
-        { signal }
+        `https://jsr.io/api/packages?query=dg-plugin-${
+          encodeURIComponent(query)
+        }`,
+        { signal },
       );
       if (!resp.ok) return [];
-      
-      const data = await resp.json();
-      const items = (data.items || []) as any[];
 
-      const filtered = items.filter(item => item.name.startsWith("dg-plugin-"));
+      const data = await resp.json();
+      const items = (data.items || []) as Record<string, unknown>[];
+
+      const filtered = items.filter((item) =>
+        typeof item.name === "string" && item.name.startsWith("dg-plugin-")
+      );
 
       if (filtered.length === 0) {
         return [{
           title: "No results found",
           subtitle: "Only packages starting with 'dg-plugin-' are shown",
           score: 0,
-          onActivate: () => {}
+          onActivate: () => {},
         }];
       }
 
@@ -107,7 +117,10 @@ export class StoreSource implements Source {
         // Fetch latest version from meta.json
         let latest = "latest";
         try {
-          const metaResp = await fetch(`https://jsr.io/@${item.scope}/${item.name}/meta.json`, { signal });
+          const metaResp = await fetch(
+            `https://jsr.io/@${item.scope}/${item.name}/meta.json`,
+            { signal },
+          );
           if (metaResp.ok) {
             const meta = await metaResp.json();
             latest = meta.latest;
@@ -116,15 +129,19 @@ export class StoreSource implements Source {
 
         const fullUrl = `jsr:@${item.scope}/${item.name}`;
         const pinnedUrl = `${fullUrl}@${latest}`;
-        
+
         // Check if ANY version of this plugin is installed
-        const installedVersion = this.#installedPlugins.find(p => p.startsWith(fullUrl));
+        const installedVersion = this.#installedPlugins.find((p) =>
+          p.startsWith(fullUrl)
+        );
         const isInstalled = !!installedVersion;
         const isLatest = installedVersion === pinnedUrl;
 
-        let subtitle = item.description || "No description";
+        let subtitle = (item.description as string) || "No description";
         if (isInstalled) {
-          subtitle = isLatest ? `[INSTALLED v${latest}] ${subtitle}` : `[UPDATE AVAILABLE to v${latest}] ${subtitle}`;
+          subtitle = isLatest
+            ? `[INSTALLED v${latest}] ${subtitle}`
+            : `[UPDATE AVAILABLE to v${latest}] ${subtitle}`;
         } else {
           subtitle = `[v${latest}] ${subtitle}`;
         }
@@ -136,18 +153,22 @@ export class StoreSource implements Source {
           score: 10,
           onActivate: async () => {
             if (isInstalled && isLatest) return;
-            
+
             try {
               console.log(`Fetching metadata for ${pinnedUrl}...`);
               const meta = await WorkerSource.loadMetadata(pinnedUrl);
               const permissions = meta.permissions || {};
-              
+
               if (Object.keys(permissions).length > 0 && this.#window) {
-                 const accepted = await promptPermissions(this.#window, meta.name, permissions);
-                 if (!accepted) {
-                   console.log("Installation cancelled.");
-                   return;
-                 }
+                const accepted = await promptPermissions(
+                  this.#window,
+                  meta.name,
+                  permissions,
+                );
+                if (!accepted) {
+                  console.log("Installation cancelled.");
+                  return;
+                }
               }
 
               if (installedVersion) {
@@ -160,12 +181,14 @@ export class StoreSource implements Source {
             } catch (err) {
               console.error("Failed to install plugin:", err);
             }
-          }
+          },
         });
       }
       return results;
     } catch (e) {
-      if (e instanceof Error && e.name === 'AbortError') return this.#lastResults;
+      if (e instanceof Error && e.name === "AbortError") {
+        return this.#lastResults;
+      }
       console.error("JSR Search failed", e);
       return [];
     }

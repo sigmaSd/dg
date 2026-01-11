@@ -1,9 +1,12 @@
-import { Source, PluginPermissions } from "./plugins/interface.ts";
-import { ConfigManager, PluginEntry } from "./config.ts";
+import type { Source } from "./plugins/interface.ts";
+import { ConfigManager } from "./config.ts";
 import { WorkerSource } from "./plugins/worker/host.ts";
 import * as path from "@std/path";
-import { AdwApplicationWindow } from "@sigmasd/gtk";
-import { normalizePermissions, promptPermissions } from "./utils/permissions.ts";
+import type { AdwApplicationWindow } from "@sigmasd/gtk";
+import {
+  normalizePermissions,
+  promptPermissions,
+} from "./utils/permissions.ts";
 
 // Import core plugins statically
 import { AppSource } from "./plugins/core/apps.ts";
@@ -21,54 +24,64 @@ export class PluginLoader {
     // 1. Load Core Plugins
     this.#plugins.push(new AppSource());
     this.#plugins.push(new FirefoxSource());
-    this.#plugins.push(new StoreSource()); 
-    this.#plugins.push(new CalculatorSource()); 
+    this.#plugins.push(new StoreSource());
+    this.#plugins.push(new CalculatorSource());
 
     // 2. Load User Plugins from config
     const config = await this.#configManager.read();
-    
+
     for (const entry of config.plugins) {
       const url = entry.url;
       try {
         // Resolve absolute path if it's a local file
         let pluginPath = url;
-        const isRemote = url.startsWith("http") || url.startsWith("https") || url.startsWith("jsr:") || url.startsWith("npm:");
-        
+        const isRemote = url.startsWith("http") || url.startsWith("https") ||
+          url.startsWith("jsr:") || url.startsWith("npm:");
+
         if (!isRemote && !url.startsWith("file://")) {
-             pluginPath = path.resolve(url);
-             pluginPath = `file://${pluginPath}`;
+          pluginPath = path.resolve(url);
+          pluginPath = `file://${pluginPath}`;
         }
 
         // 1. Load Metadata (Safe Sandbox)
         const meta = await WorkerSource.loadMetadata(pluginPath);
-        
+
         // Verify Permissions
         const granted = entry.permissions || {};
         const requested = meta.permissions || {};
-        
+
         const grantedStr = JSON.stringify(normalizePermissions(granted));
         const requestedStr = JSON.stringify(normalizePermissions(requested));
 
         if (grantedStr !== requestedStr) {
-           console.log(`Plugin '${meta.name}' (${url}) permissions have changed.`);
-           if (window) {
-             const accepted = await promptPermissions(window, meta.name, requested);
-             if (accepted) {
-               await this.#configManager.updatePlugin(entry.url, requested);
-             } else {
-               console.warn(`User denied updated permissions for ${meta.name}. Skipping.`);
-               continue; 
-             }
-           } else {
-             console.warn(`Cannot prompt for permissions (no window). Skipping ${meta.name}`);
-             continue;
-           }
+          console.log(
+            `Plugin '${meta.name}' (${url}) permissions have changed.`,
+          );
+          if (window) {
+            const accepted = await promptPermissions(
+              window,
+              meta.name,
+              requested,
+            );
+            if (accepted) {
+              await this.#configManager.updatePlugin(entry.url, requested);
+            } else {
+              console.warn(
+                `User denied updated permissions for ${meta.name}. Skipping.`,
+              );
+              continue;
+            }
+          } else {
+            console.warn(
+              `Cannot prompt for permissions (no window). Skipping ${meta.name}`,
+            );
+            continue;
+          }
         }
 
         // 2. Initialize Worker
         const plugin = new WorkerSource(pluginPath, meta);
         this.#plugins.push(plugin);
-
       } catch (e) {
         console.error(`Failed to load plugin ${url}:`, e);
       }

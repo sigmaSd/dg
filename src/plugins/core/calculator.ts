@@ -1,4 +1,4 @@
-import { SearchResult, Source } from "../interface.ts";
+import type { SearchResult, Source } from "../interface.ts";
 
 export class CalculatorSource implements Source {
   id = "calculator";
@@ -6,10 +6,10 @@ export class CalculatorSource implements Source {
   description = "Perform simple calculations";
   trigger = undefined; // Make it global
 
-  async init(_window?: any): Promise<void> {}
+  async init(_window?: unknown): Promise<void> {}
 
-  async search(query: string): Promise<SearchResult[]> {
-    if (!query || query.length < 3) return [];
+  search(query: string): Promise<SearchResult[]> {
+    if (!query || query.length < 3) return Promise.resolve([]);
 
     try {
       let q = query.trim();
@@ -19,21 +19,21 @@ export class CalculatorSource implements Source {
 
       // Remove spaces for easier check
       const clean = q.replace(/\s+/g, "");
-      
+
       // Basic validation: only numbers, operators, parens, and dot
       // Must contain at least one operator to be considered a calculation in global search
       if (!/^[0-9+\-*/().]+$/.test(clean) || !/[+\-*/]/.test(clean)) {
-        return [];
+        return Promise.resolve([]);
       }
 
       // Use Function constructor as a safer eval
       const result = new Function(`return ${clean}`)();
-      
+
       if (typeof result !== "number" || isNaN(result) || !isFinite(result)) {
-        return [];
+        return Promise.resolve([]);
       }
 
-      return [{
+      return Promise.resolve([{
         title: result.toString(),
         subtitle: `Result of ${query}`,
         icon: "accessories-calculator",
@@ -42,13 +42,16 @@ export class CalculatorSource implements Source {
           console.log(`Copying result to clipboard: ${result}`);
           // Copy to clipboard using wl-copy or xclip if available
           const command = new Deno.Command("sh", {
-            args: ["-c", `echo -n "${result}" | wl-copy || echo -n "${result}" | xclip -selection clipboard`],
+            args: [
+              "-c",
+              `echo -n "${result}" | wl-copy || echo -n "${result}" | xclip -selection clipboard`,
+            ],
           });
           command.spawn();
-        }
-      }];
+        },
+      }]);
     } catch {
-      return [];
+      return Promise.resolve([]);
     }
   }
 }

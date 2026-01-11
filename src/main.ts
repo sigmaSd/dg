@@ -17,7 +17,7 @@ import {
   Widget,
 } from "@sigmasd/gtk";
 import { EventLoop } from "@sigmasd/gtk/eventloop";
-import { SearchResult, Source } from "./plugins/interface.ts";
+import type { SearchResult, Source } from "./plugins/interface.ts";
 import { PluginLoader } from "./loader.ts";
 
 const APP_ID = "io.github.sigmasd.dg";
@@ -32,7 +32,7 @@ class LauncherApp {
   #statusLabel?: Label;
   #spinner?: Spinner;
   #bottomBox?: Box;
-  
+
   #loader: PluginLoader;
   #plugins: Source[] = [];
   #currentResults: SearchResult[] = [];
@@ -112,7 +112,7 @@ class LauncherApp {
     toolbarView.addTopBar(headerBar);
 
     const contentBox = new Box(GTK_ORIENTATION_VERTICAL, 0);
-    
+
     // Search Entry
     const searchBox = new Box(GTK_ORIENTATION_VERTICAL, 0);
     searchBox.setMarginTop(12);
@@ -121,10 +121,13 @@ class LauncherApp {
     searchBox.setMarginEnd(12);
 
     this.#searchEntry = new Entry();
-    this.#searchEntry.setProperty("placeholder-text", "Type to search apps, or 'b' for browser...");
+    this.#searchEntry.setProperty(
+      "placeholder-text",
+      "Type to search apps, or 'b' for browser...",
+    );
     this.#searchEntry.onChanged(() => this.#onSearchChanged());
     this.#searchEntry.onActivate(() => this.#activateResult(0));
-    
+
     searchBox.append(this.#searchEntry);
     contentBox.append(searchBox);
 
@@ -132,7 +135,7 @@ class LauncherApp {
     const scrolled = new ScrolledWindow();
     scrolled.setProperty("vexpand", true);
     scrolled.setProperty("hscrollbar-policy", 2); // GTK_POLICY_NEVER
-    
+
     this.#listBox = new ListBox();
     this.#listBox.setProperty("selection-mode", 1);
     this.#listBox.setMarginTop(0);
@@ -186,20 +189,20 @@ class LauncherApp {
     this.#setLoading(true, "Searching...");
 
     let results: SearchResult[] = [];
-    
+
     const parts = query.split(" ");
     const trigger = parts[0];
     const args = parts.slice(1).join(" ");
 
     // Check if a plugin matches the specific trigger
-    const triggeredPlugin = this.#plugins.find(p => p.trigger === trigger);
+    const triggeredPlugin = this.#plugins.find((p) => p.trigger === trigger);
 
     if (triggeredPlugin) {
       // Specific plugin search
       results = await triggeredPlugin.search(args);
     } else {
       // Global search (plugins with no trigger)
-      const globalPlugins = this.#plugins.filter(p => !p.trigger);
+      const globalPlugins = this.#plugins.filter((p) => !p.trigger);
       for (const plugin of globalPlugins) {
         const pluginResults = await plugin.search(query);
         results = results.concat(pluginResults);
@@ -229,7 +232,7 @@ class LauncherApp {
 
     for (const result of results) {
       const row = new ListBoxRow();
-      
+
       const mainBox = new Box(GTK_ORIENTATION_HORIZONTAL, 12);
       mainBox.setMarginTop(8);
       mainBox.setMarginBottom(8);
@@ -237,9 +240,9 @@ class LauncherApp {
       mainBox.setMarginEnd(10);
 
       if (result.icon) {
-        const icon = new Image({ 
+        const icon = new Image({
           iconName: result.icon.startsWith("/") ? undefined : result.icon,
-          file: result.icon.startsWith("/") ? result.icon : undefined 
+          file: result.icon.startsWith("/") ? result.icon : undefined,
         });
         icon.setPixelSize(32);
         icon.setProperty("valign", 3); // GTK_ALIGN_CENTER
@@ -247,20 +250,24 @@ class LauncherApp {
       }
 
       const textBox = new Box(GTK_ORIENTATION_VERTICAL, 4);
-      
+
       const titleLabel = new Label(result.title);
       titleLabel.setProperty("xalign", 0);
       titleLabel.setProperty("ellipsize", 3);
       titleLabel.setMarkup(`<b>${this.#escapeMarkup(result.title)}</b>`);
-      
+
       const subtitleLabel = new Label(result.subtitle);
       subtitleLabel.setProperty("xalign", 0);
       subtitleLabel.setProperty("ellipsize", 3);
-      subtitleLabel.setMarkup(`<span size="small" alpha="50%">${this.#escapeMarkup(result.subtitle)}</span>`);
+      subtitleLabel.setMarkup(
+        `<span size="small" alpha="50%">${
+          this.#escapeMarkup(result.subtitle)
+        }</span>`,
+      );
 
       textBox.append(titleLabel);
       textBox.append(subtitleLabel);
-      
+
       mainBox.append(textBox);
       row.setChild(mainBox);
       this.#listBox.append(row);

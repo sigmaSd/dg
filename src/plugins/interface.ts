@@ -28,17 +28,26 @@ export interface Source {
   name: string;
   description?: string;
   trigger?: string;
-  init(window?: any): Promise<void>;
+  init(window?: unknown): Promise<void>;
   search(query: string): Promise<SearchResult[]>;
 }
 
 // --- RPC Protocol Types ---
 
-export type WorkerMessage = 
+export type WorkerMessage =
   | { type: "search"; id: number; query: string }
   | { type: "activate"; id: string };
 
 export type MainMessage =
   | { type: "ready"; metadata: PluginMetadata }
-  | { type: "results"; id: number; results: { title: string; subtitle: string; score: number; resultId: string }[] }
+  | {
+    type: "results";
+    id: number;
+    results: {
+      title: string;
+      subtitle: string;
+      score: number;
+      resultId: string;
+    }[];
+  }
   | { type: "log"; level: "info" | "error"; message: string };

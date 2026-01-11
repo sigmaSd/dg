@@ -211,18 +211,18 @@ app.onActivate(() => {
 
   // Create a ToolbarView to manage the layout
   const toolbarView = new ToolbarView();
-  
+
   // Create a HeaderBar and add it to the top
   const headerBar = new HeaderBar();
   toolbarView.addTopBar(headerBar);
-  
+
   // Create content
   const label = new Label("Content goes here");
   toolbarView.setContent(label);
-  
+
   // Set the ToolbarView as the window content
   win.setContent(toolbarView);
-  
+
   win.present();
 });
 ```

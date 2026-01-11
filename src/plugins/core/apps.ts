@@ -1,5 +1,5 @@
-import { AppInfo, getApps } from "../../apps.ts";
-import { SearchResult, Source } from "../interface.ts";
+import { type AppInfo, getApps } from "../../apps.ts";
+import type { SearchResult, Source } from "../interface.ts";
 
 export class AppSource implements Source {
   id = "apps";
@@ -9,20 +9,20 @@ export class AppSource implements Source {
 
   #apps: AppInfo[] = [];
 
-  async init(_window?: any): Promise<void> {
+  async init(_window?: unknown): Promise<void> {
     this.#apps = await getApps();
   }
 
-  async search(query: string): Promise<SearchResult[]> {
+  search(query: string): Promise<SearchResult[]> {
     const q = query.toLowerCase();
-    
+
     // Simple fuzzy-ish matching
-    const matches = this.#apps.filter(app => 
-      app.name.toLowerCase().includes(q) || 
+    const matches = this.#apps.filter((app) =>
+      app.name.toLowerCase().includes(q) ||
       app.exec.toLowerCase().includes(q)
     );
 
-    return matches.map(app => ({
+    return Promise.resolve(matches.map((app) => ({
       title: app.name,
       subtitle: app.exec,
       icon: app.icon,
@@ -36,7 +36,7 @@ export class AppSource implements Source {
           stderr: "null",
         });
         command.spawn();
-      }
-    }));
+      },
+    })));
   }
 }

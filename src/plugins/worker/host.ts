@@ -1,4 +1,11 @@
-import { PluginMetadata, PluginPermissions, SearchResult, Source, WorkerMessage, MainMessage } from "../interface.ts";
+import type {
+  MainMessage,
+  PluginMetadata,
+  PluginPermissions,
+  SearchResult,
+  Source,
+  WorkerMessage,
+} from "../interface.ts";
 
 export class WorkerSource implements Source {
   id: string;
@@ -18,13 +25,30 @@ export class WorkerSource implements Source {
     this.name = metadata.name;
     this.description = metadata.description;
     this.trigger = metadata.trigger;
-    
+
     // Explicitly deny permissions not requested
     const requested = metadata.permissions || {};
-    const allPerms: any[] = ["run", "read", "write", "net", "env", "sys", "ffi", "hrtime"];
+    const allPerms: (keyof PluginPermissions)[] = [
+      "run",
+      "read",
+      "write",
+      "net",
+      "env",
+      "sys",
+    ];
     this.#permissions = {};
     for (const p of allPerms) {
-      (this.#permissions as any)[p] = (requested as any)[p] || false;
+      (this.#permissions as Record<string, unknown>)[p] =
+        (requested as Record<string, unknown>)[p] || false;
+    }
+    // Also handle non-standard ones if any, but better to stick to PluginPermissions keys
+    if ((requested as Record<string, unknown>).ffi) {
+      (this.#permissions as Record<string, unknown>).ffi =
+        (requested as Record<string, unknown>).ffi;
+    }
+    if ((requested as Record<string, unknown>).hrtime) {
+      (this.#permissions as Record<string, unknown>).hrtime =
+        (requested as Record<string, unknown>).hrtime;
     }
   }
 
@@ -32,29 +56,31 @@ export class WorkerSource implements Source {
    * Spawns a restricted worker to read the plugin's metadata.
    * This runs with effectively NO permissions (except reading the file itself).
    */
-  static async loadMetadata(filePath: string): Promise<PluginMetadata> {
+  static loadMetadata(filePath: string): Promise<PluginMetadata> {
     const code = `
-      import { meta } from "${filePath}";
-      self.postMessage(meta);
-    `;
-    
+          import { meta } from "${filePath}";
+          self.postMessage(meta);
+        `;
+
     // Create a blob URL for the bootstrapping code
     const blob = new Blob([code], { type: "application/typescript" });
     const url = URL.createObjectURL(blob);
 
-    const isRemote = filePath.startsWith("http") || filePath.startsWith("https") || filePath.startsWith("jsr:") || filePath.startsWith("npm:");
+    const isRemote = filePath.startsWith("http") ||
+      filePath.startsWith("https") || filePath.startsWith("jsr:") ||
+      filePath.startsWith("npm:");
 
-    const worker = new Worker(url, { 
+    const worker = new Worker(url, {
       type: "module",
       deno: {
         permissions: {
-          read: isRemote ? false : [filePath], 
+          read: isRemote ? false : [filePath],
           net: isRemote ? true : false, // Allow net for remote modules (fetching)
           write: false,
           run: false,
-          env: false
-        }
-      } as any // 'deno' option is Deno-specific
+          env: false,
+        },
+      } as unknown as { permissions: Deno.PermissionOptions }, // Use unknown cast to avoid any if possible
     });
 
     return new Promise((resolve, reject) => {
@@ -79,14 +105,16 @@ export class WorkerSource implements Source {
     });
   }
 
-  async init(_window?: any): Promise<void> {
+  init(_window?: unknown): Promise<void> {
     // Construct the bootstrapping code for the real worker
     // We assume the plugin exports a default class that extends WorkerPlugin
     // and a 'meta' object.
     const code = `
-      import { setupWorker } from "${new URL("./client.ts", import.meta.url).href}";
+      import { setupWorker } from "${
+      new URL("./client.ts", import.meta.url).href
+    }";
       import Plugin, { meta } from "${this.#path}";
-      
+
       const instance = new Plugin();
       setupWorker(instance, meta);
     `;
@@ -97,8 +125,8 @@ export class WorkerSource implements Source {
     this.#worker = new Worker(url, {
       type: "module",
       deno: {
-        permissions: this.#permissions
-      } as any
+        permissions: this.#permissions as Deno.PermissionOptions,
+      } as { permissions: Deno.PermissionOptions },
     });
 
     this.#worker.onmessage = (e: MessageEvent<MainMessage>) => {
@@ -107,16 +135,16 @@ export class WorkerSource implements Source {
         const resolve = this.#pendingSearches.get(msg.id);
         if (resolve) {
           // Hydrate the results with the activation logic
-          const hydratedResults: SearchResult[] = msg.results.map(r => ({
+          const hydratedResults: SearchResult[] = msg.results.map((r) => ({
             title: r.title,
             subtitle: r.subtitle,
             score: r.score,
             onActivate: () => {
               this.#worker?.postMessage({
                 type: "activate",
-                id: r.resultId
+                id: r.resultId,
               } as WorkerMessage);
-            }
+            },
           }));
           resolve(hydratedResults);
           this.#pendingSearches.delete(msg.id);
@@ -125,6 +153,8 @@ export class WorkerSource implements Source {
         console.log(`[Plugin ${this.id}]`, msg.message);
       }
     };
+
+    return Promise.resolve();
   }
 
   search(query: string): Promise<SearchResult[]> {
@@ -132,11 +162,11 @@ export class WorkerSource implements Source {
 
     const id = ++this.#searchIdCounter;
     const msg: WorkerMessage = { type: "search", id, query };
-    
+
     return new Promise((resolve) => {
       this.#pendingSearches.set(id, resolve);
       this.#worker!.postMessage(msg);
-      
+
       // Cleanup timeout
       setTimeout(() => {
         if (this.#pendingSearches.has(id)) {

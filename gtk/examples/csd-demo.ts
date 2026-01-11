@@ -41,7 +41,9 @@ class CSDDemoApp {
         box.setMarginStart(24);
         box.setMarginEnd(24);
 
-        const label = new Label("This window uses Client-Side Decorations (CSD)");
+        const label = new Label(
+          "This window uses Client-Side Decorations (CSD)",
+        );
         box.append(label);
 
         const decoratedBtn = new Button("Toggle System Decorations");

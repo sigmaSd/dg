@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { SearchResult, Source } from "../interface.ts";
+import type { SearchResult, Source } from "../interface.ts";
 
 export class FirefoxSource implements Source {
   id = "firefox";
@@ -11,14 +11,18 @@ export class FirefoxSource implements Source {
   #db?: DatabaseSync;
   #tmpPath?: string;
 
-  async init(_window?: any): Promise<void> {
+  async init(_window?: unknown): Promise<void> {
     const home = Deno.env.get("HOME");
     if (!home) return;
 
     const firefoxDir = `${home}/.mozilla/firefox`;
     try {
       for await (const entry of Deno.readDir(firefoxDir)) {
-        if (entry.isDirectory && (entry.name.endsWith(".default-release") || entry.name.endsWith(".default"))) {
+        if (
+          entry.isDirectory &&
+          (entry.name.endsWith(".default-release") ||
+            entry.name.endsWith(".default"))
+        ) {
           const placesPath = `${firefoxDir}/${entry.name}/places.sqlite`;
           try {
             await Deno.stat(placesPath);
@@ -43,8 +47,8 @@ export class FirefoxSource implements Source {
     }
   }
 
-  async search(query: string): Promise<SearchResult[]> {
-    if (!this.#db || !query) return [];
+  search(query: string): Promise<SearchResult[]> {
+    if (!this.#db || !query) return Promise.resolve([]);
 
     const q = `%${query}%`;
     const stmt = this.#db.prepare(`
@@ -56,9 +60,13 @@ export class FirefoxSource implements Source {
       LIMIT 20
     `);
 
-    const rows = stmt.all(q, q) as { title: string | null; url: string; visit_count: number }[];
+    const rows = stmt.all(q, q) as {
+      title: string | null;
+      url: string;
+      visit_count: number;
+    }[];
 
-    return rows.map(row => ({
+    return Promise.resolve(rows.map((row) => ({
       title: row.title || row.url,
       subtitle: row.url,
       icon: "firefox",
@@ -72,8 +80,8 @@ export class FirefoxSource implements Source {
           stderr: "null",
         });
         command.spawn();
-      }
-    }));
+      },
+    })));
   }
 
   cleanup() {
