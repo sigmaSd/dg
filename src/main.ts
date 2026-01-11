@@ -23,7 +23,7 @@ import { PluginLoader } from "./loader.ts";
 const APP_ID = "io.github.sigmasd.dg";
 const APP_FLAGS = 0;
 
-class LauncherApp {
+class DGApp {
   #app: Application;
   #win?: AdwApplicationWindow;
   #eventLoop: EventLoop;
@@ -303,6 +303,6 @@ class LauncherApp {
 }
 
 if (import.meta.main) {
-  const app = new LauncherApp();
+  const app = new DGApp();
   await app.run();
 }

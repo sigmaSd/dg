@@ -15,7 +15,7 @@ export class ConfigManager {
 
   constructor() {
     const home = Deno.env.get("HOME") || ".";
-    this.#configPath = join(home, ".config", "launcher", "plugins.json");
+    this.#configPath = join(home, ".config", "dg", "plugins.json");
   }
 
   async ensureConfigDir() {
