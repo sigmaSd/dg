@@ -6,6 +6,7 @@ import {
   GTK_ORIENTATION_HORIZONTAL,
   GTK_ORIENTATION_VERTICAL,
   HeaderBar,
+  Image,
   Label,
   ListBox,
   ListBoxRow,
@@ -229,12 +230,24 @@ class LauncherApp {
     for (const result of results) {
       const row = new ListBoxRow();
       
-      const box = new Box(GTK_ORIENTATION_VERTICAL, 4);
-      box.setMarginTop(8);
-      box.setMarginBottom(8);
-      box.setMarginStart(10);
-      box.setMarginEnd(10);
+      const mainBox = new Box(GTK_ORIENTATION_HORIZONTAL, 12);
+      mainBox.setMarginTop(8);
+      mainBox.setMarginBottom(8);
+      mainBox.setMarginStart(10);
+      mainBox.setMarginEnd(10);
 
+      if (result.icon) {
+        const icon = new Image({ 
+          iconName: result.icon.startsWith("/") ? undefined : result.icon,
+          file: result.icon.startsWith("/") ? result.icon : undefined 
+        });
+        icon.setPixelSize(32);
+        icon.setProperty("valign", 3); // GTK_ALIGN_CENTER
+        mainBox.append(icon);
+      }
+
+      const textBox = new Box(GTK_ORIENTATION_VERTICAL, 4);
+      
       const titleLabel = new Label(result.title);
       titleLabel.setProperty("xalign", 0);
       titleLabel.setProperty("ellipsize", 3);
@@ -245,10 +258,11 @@ class LauncherApp {
       subtitleLabel.setProperty("ellipsize", 3);
       subtitleLabel.setMarkup(`<span size="small" alpha="50%">${this.#escapeMarkup(result.subtitle)}</span>`);
 
-      box.append(titleLabel);
-      box.append(subtitleLabel);
+      textBox.append(titleLabel);
+      textBox.append(subtitleLabel);
       
-      row.setChild(box);
+      mainBox.append(textBox);
+      row.setChild(mainBox);
       this.#listBox.append(row);
     }
   }

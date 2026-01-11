@@ -607,6 +607,35 @@ export class Spinner extends Widget {
   }
 }
 
+// GTK Image
+export class Image extends Widget {
+  constructor(options?: { iconName?: string; file?: string }) {
+    let ptr: Deno.PointerValue;
+    if (options?.iconName) {
+      ptr = gtk.symbols.gtk_image_new_from_icon_name(cstr(options.iconName));
+    } else if (options?.file) {
+      ptr = gtk.symbols.gtk_image_new_from_file(cstr(options.file));
+    } else {
+      // Default to empty image if no option provided, although usually you'd want one
+      ptr = gtk.symbols.gtk_image_new_from_icon_name(cstr("image-missing"));
+    }
+    super(ptr);
+  }
+
+  setPixelSize(size: number): void {
+    gtk.symbols.gtk_image_set_pixel_size(this.ptr, size);
+  }
+
+  setIconName(iconName: string): void {
+    this.setProperty("icon-name", iconName);
+  }
+
+  setFile(file: string): void {
+    const fileCStr = cstr(file);
+    gtk.symbols.gtk_image_set_from_file(this.ptr, fileCStr);
+  }
+}
+
 // GTK CheckButton
 export class CheckButton extends Widget {
   constructor(label?: string) {

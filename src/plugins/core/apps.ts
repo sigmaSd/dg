@@ -25,6 +25,7 @@ export class AppSource implements Source {
     return matches.map(app => ({
       title: app.name,
       subtitle: app.exec,
+      icon: app.icon,
       score: app.name.toLowerCase().startsWith(q) ? 100 : 50,
       onActivate: () => {
         console.log(`Launching: ${app.name}`);

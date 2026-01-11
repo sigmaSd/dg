@@ -51,6 +51,7 @@ export class StoreSource implements Source {
         return {
           title: displayTitle,
           subtitle: `${displayVersion} - Press Enter to Remove`,
+          icon: "package-x-generic",
           score: 100,
           onActivate: async () => {
             console.log(`Removing plugin: ${url}`);
@@ -131,6 +132,7 @@ export class StoreSource implements Source {
         results.push({
           title: `@${item.scope}/${item.name}`,
           subtitle,
+          icon: "system-software-install",
           score: 10,
           onActivate: async () => {
             if (isInstalled && isLatest) return;
@@ -163,7 +165,7 @@ export class StoreSource implements Source {
       }
       return results;
     } catch (e) {
-      if (e.name === 'AbortError') return this.#lastResults;
+      if (e instanceof Error && e.name === 'AbortError') return this.#lastResults;
       console.error("JSR Search failed", e);
       return [];
     }

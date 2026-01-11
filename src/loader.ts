@@ -9,6 +9,7 @@ import { normalizePermissions, promptPermissions } from "./utils/permissions.ts"
 import { AppSource } from "./plugins/core/apps.ts";
 import { FirefoxSource } from "./plugins/core/firefox.ts";
 import { StoreSource } from "./plugins/core/store.ts";
+import { CalculatorSource } from "./plugins/core/calculator.ts";
 
 export class PluginLoader {
   #plugins: Source[] = [];
@@ -21,6 +22,7 @@ export class PluginLoader {
     this.#plugins.push(new AppSource());
     this.#plugins.push(new FirefoxSource());
     this.#plugins.push(new StoreSource()); 
+    this.#plugins.push(new CalculatorSource()); 
 
     // 2. Load User Plugins from config
     const config = await this.#configManager.read();

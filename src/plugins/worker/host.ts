@@ -21,10 +21,10 @@ export class WorkerSource implements Source {
     
     // Explicitly deny permissions not requested
     const requested = metadata.permissions || {};
-    const allPerms: Deno.PermissionName[] = ["run", "read", "write", "net", "env", "sys", "ffi", "hrtime"];
+    const allPerms: any[] = ["run", "read", "write", "net", "env", "sys", "ffi", "hrtime"];
     this.#permissions = {};
     for (const p of allPerms) {
-      this.#permissions[p] = (requested as any)[p] || false;
+      (this.#permissions as any)[p] = (requested as any)[p] || false;
     }
   }
 

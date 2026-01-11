@@ -409,6 +409,10 @@ export const gtk = Deno.dlopen(LIB_PATHS.gtk, {
   gtk_spinner_new: { parameters: [], result: "pointer" },
   gtk_spinner_start: { parameters: ["pointer"], result: "void" },
   gtk_spinner_stop: { parameters: ["pointer"], result: "void" },
+  gtk_image_new_from_icon_name: { parameters: ["buffer"], result: "pointer" },
+  gtk_image_new_from_file: { parameters: ["buffer"], result: "pointer" },
+  gtk_image_set_from_file: { parameters: ["pointer", "buffer"], result: "void" },
+  gtk_image_set_pixel_size: { parameters: ["pointer", "i32"], result: "void" },
   gtk_string_list_new: { parameters: ["pointer"], result: "pointer" },
   gtk_string_list_append: { parameters: ["pointer", "buffer"], result: "void" },
   gtk_string_list_get_string: {

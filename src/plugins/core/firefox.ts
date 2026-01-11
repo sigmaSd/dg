@@ -61,6 +61,7 @@ export class FirefoxSource implements Source {
     return rows.map(row => ({
       title: row.title || row.url,
       subtitle: row.url,
+      icon: "firefox",
       score: 10 + Math.min(row.visit_count, 20),
       onActivate: () => {
         console.log(`Opening: ${row.url}`);
