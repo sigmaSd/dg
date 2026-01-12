@@ -60,11 +60,21 @@ jobs:
           mkdir -p dist-windows
           cp dg-windows.exe dist-windows/dg.exe
           cp /mingw64/bin/*.dll dist-windows/
+          
+          # GTK Folders
           mkdir -p dist-windows/share
           cp -r /mingw64/share/icons dist-windows/share/
           cp -r /mingw64/share/glib-2.0 dist-windows/share/
+          cp -r /mingw64/share/mime dist-windows/share/ || true
           
-          # Compile schemas just in case
+          # Gdk-pixbuf loaders (critical for image support)
+          mkdir -p dist-windows/lib/gdk-pixbuf-2.0/2.10.0
+          cp -r /mingw64/lib/gdk-pixbuf-2.0/2.10.0/loaders dist-windows/lib/gdk-pixbuf-2.0/2.10.0/
+          gdk-pixbuf-query-loaders.exe > dist-windows/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache
+          # Fix paths in loaders.cache to be relative
+          sed -i 's|/mingw64/lib/gdk-pixbuf-2.0/2.10.0/loaders/||g' dist-windows/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache
+
+          # Compile schemas
           glib-compile-schemas /mingw64/share/glib-2.0/schemas/
           cp /mingw64/share/glib-2.0/schemas/gschemas.compiled dist-windows/share/glib-2.0/schemas/
           
@@ -88,6 +98,7 @@ jobs:
           Source: "dist-windows\dg.exe"; DestDir: "{app}"; Flags: ignoreversion
           Source: "dist-windows\*.dll"; DestDir: "{app}"; Flags: ignoreversion
           Source: "dist-windows\share\*"; DestDir: "{app}\share"; Flags: ignoreversion recursesubdirs
+          Source: "dist-windows\lib\*"; DestDir: "{app}\lib"; Flags: ignoreversion recursesubdirs
 
           [Icons]
           Name: "{group}\dg"; Filename: "{app}\dg.exe"
