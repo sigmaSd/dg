@@ -20,10 +20,17 @@ import type {
  * ```
  */
 export abstract class WorkerPlugin {
+  /**
+   * Search for results matching the query.
+   * @param query The search string
+   */
   abstract search(query: string): Promise<SearchResult[]>;
 
-  // Optional: Handle activation if complex logic is needed inside the worker
-  // Default behavior is handled by the main thread via the resultId
+  /**
+   * Optional: Handle activation if complex logic is needed inside the worker.
+   * Default behavior is handled by the main thread via the resultId.
+   * @param _resultId The ID of the activated result
+   */
   async onActivate(_resultId: string): Promise<void> {}
 }
 

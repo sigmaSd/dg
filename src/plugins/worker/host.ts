@@ -7,10 +7,17 @@ import type {
   WorkerMessage,
 } from "../interface.ts";
 
+/**
+ * Host implementation for running plugins in a Worker.
+ */
 export class WorkerSource implements Source {
+  /** Unique identifier for the source */
   id: string;
+  /** Display name of the source */
   name: string;
+  /** Brief description of the source */
   description?: string;
+  /** Trigger keyword */
   trigger?: string;
 
   #worker?: Worker;
@@ -19,6 +26,11 @@ export class WorkerSource implements Source {
   #pendingSearches = new Map<number, (results: SearchResult[]) => void>();
   #searchIdCounter = 0;
 
+  /**
+   * Creates a new WorkerSource.
+   * @param path Path to the plugin module
+   * @param metadata Metadata describing the plugin
+   */
   constructor(path: string, metadata: PluginMetadata) {
     this.#path = path;
     this.id = metadata.id;
@@ -105,6 +117,9 @@ export class WorkerSource implements Source {
     });
   }
 
+  /**
+   * Initializes the worker and sets up message listeners.
+   */
   init(): Promise<void> {
     // Construct the bootstrapping code for the real worker
     // We assume the plugin exports a default class that extends WorkerPlugin
@@ -157,6 +172,10 @@ export class WorkerSource implements Source {
     return Promise.resolve();
   }
 
+  /**
+   * Sends a search query to the worker.
+   * @param query The search query
+   */
   search(query: string): Promise<SearchResult[]> {
     if (!this.#worker) return Promise.resolve([]);
 
