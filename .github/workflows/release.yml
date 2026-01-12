@@ -74,11 +74,14 @@ jobs:
           
           # Combine SFX stub + config + archive into a single portable EXE
           # Note: We use a generic SFX stub. 
-          SFX_STUB=$(find /mingw64 -name 7zSD.sfx | head -n 1)
+          SFX_STUB=$(find /usr/lib/7zip /mingw64 -name "7zSD.sfx" -o -name "7zS.sfx" -o -name "7z.sfx" 2>/dev/null | head -n 1)
+          
           if [ -z "$SFX_STUB" ]; then
-            echo "Error: 7zSD.sfx not found"
+            echo "Error: SFX stub not found. Listing potential locations:"
+            find /usr/lib/7zip /mingw64 -name "*.sfx" 2>/dev/null || echo "No .sfx files found in common locations"
             exit 1
           fi
+          echo "Using SFX stub: $SFX_STUB"
           cat "$SFX_STUB" sfx_config.txt dg-bundle.7z > dg-portable.exe
 
       - name: Upload binary
