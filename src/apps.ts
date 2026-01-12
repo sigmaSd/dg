@@ -6,6 +6,19 @@ export interface AppInfo {
 }
 
 export async function getApps(): Promise<AppInfo[]> {
+  if (Deno.build.os === "linux") {
+    return getLinuxApps();
+  }
+  if (Deno.build.os === "darwin") {
+    return getMacApps();
+  }
+  if (Deno.build.os === "windows") {
+    return getWindowsApps();
+  }
+  return [];
+}
+
+async function getLinuxApps(): Promise<AppInfo[]> {
   const apps: AppInfo[] = [];
   const searchPaths = [
     "/usr/share/applications",
@@ -28,9 +41,56 @@ export async function getApps(): Promise<AppInfo[]> {
     }
   }
 
-  // Deduplicate by name, preferring user local paths if duplicates exist?
-  // For simplicity, we just return all unique valid ones.
   return apps.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+async function getMacApps(): Promise<AppInfo[]> {
+  const apps: AppInfo[] = [];
+  const searchPaths = [
+    "/Applications",
+    "/System/Applications",
+    `${Deno.env.get("HOME")}/Applications`,
+  ];
+
+  for (const p of searchPaths) {
+    try {
+      for await (const entry of Deno.readDir(p)) {
+        if (entry.name.endsWith(".app")) {
+          apps.push({
+            name: entry.name.slice(0, -4),
+            exec: `open -a "${p}/${entry.name}"`,
+            path: `${p}/${entry.name}`,
+            icon: "application-x-executable",
+          });
+        }
+      }
+    } catch { /* ignore */ }
+  }
+  return apps.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+async function getWindowsApps(): Promise<AppInfo[]> {
+  try {
+    const command = new Deno.Command("powershell", {
+      args: ["-Command", "Get-StartApps | ConvertTo-Json"],
+      stdout: "piped",
+    });
+    const { stdout } = await command.output();
+    const output = new TextDecoder().decode(stdout);
+    if (!output) return [];
+
+    const data = JSON.parse(output);
+    const appList = Array.isArray(data) ? data : [data];
+
+    return appList.map((app: { Name: string; AppID: string }) => ({
+      name: app.Name,
+      exec: `explorer.exe shell:AppsFolder\\${app.AppID}`,
+      path: app.AppID,
+      icon: "application-x-executable",
+    })).sort((a: AppInfo, b: AppInfo) => a.name.localeCompare(b.name));
+  } catch {
+    return [];
+  }
 }
 
 function parseDesktopFile(content: string, path: string): AppInfo | null {
