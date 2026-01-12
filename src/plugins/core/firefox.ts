@@ -11,7 +11,7 @@ export class FirefoxSource implements Source {
   #db?: DatabaseSync;
   #tmpPath?: string;
 
-  async init(_window?: unknown): Promise<void> {
+  async init(): Promise<void> {
     const home = Deno.env.get("HOME");
     if (!home) return;
 

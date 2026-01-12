@@ -18,8 +18,11 @@ export class StoreSource implements Source {
   #isSearching = false;
   #window?: AdwApplicationWindow;
 
-  async init(window?: unknown): Promise<void> {
-    this.#window = window as AdwApplicationWindow;
+  constructor(window?: AdwApplicationWindow) {
+    this.#window = window;
+  }
+
+  async init(): Promise<void> {
     const config = await this.#configManager.read();
     this.#installedPlugins = config.plugins.map((p) => p.url);
   }

@@ -105,7 +105,7 @@ export class WorkerSource implements Source {
     });
   }
 
-  init(_window?: unknown): Promise<void> {
+  init(): Promise<void> {
     // Construct the bootstrapping code for the real worker
     // We assume the plugin exports a default class that extends WorkerPlugin
     // and a 'meta' object.

@@ -24,7 +24,7 @@ export class PluginLoader {
     // 1. Load Core Plugins
     this.#plugins.push(new AppSource());
     this.#plugins.push(new FirefoxSource());
-    this.#plugins.push(new StoreSource());
+    this.#plugins.push(new StoreSource(window));
     this.#plugins.push(new CalculatorSource());
 
     // 2. Load User Plugins from config
@@ -91,7 +91,7 @@ export class PluginLoader {
     console.log(`Initializing ${this.#plugins.length} plugins...`);
     for (const plugin of this.#plugins) {
       try {
-        await plugin.init(window);
+        await plugin.init();
       } catch (e) {
         console.error(`Failed to init plugin ${plugin.name}:`, e);
       }

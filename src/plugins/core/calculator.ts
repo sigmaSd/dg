@@ -6,7 +6,7 @@ export class CalculatorSource implements Source {
   description = "Perform simple calculations";
   trigger = undefined; // Make it global
 
-  async init(_window?: unknown): Promise<void> {}
+  async init(): Promise<void> {}
 
   search(query: string): Promise<SearchResult[]> {
     if (!query || query.length < 3) return Promise.resolve([]);

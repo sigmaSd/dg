@@ -28,7 +28,7 @@ export interface Source {
   name: string;
   description?: string;
   trigger?: string;
-  init(window?: unknown): Promise<void>;
+  init(): Promise<void>;
   search(query: string): Promise<SearchResult[]>;
 }
 

@@ -9,7 +9,7 @@ export class AppSource implements Source {
 
   #apps: AppInfo[] = [];
 
-  async init(_window?: unknown): Promise<void> {
+  async init(): Promise<void> {
     this.#apps = await getApps();
   }
 
