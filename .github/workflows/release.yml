@@ -78,6 +78,7 @@ jobs:
           cat /mingw64/lib/7zip/7zSD.sfx sfx_config.txt dg-bundle.7z > dg-portable.exe
 
       - name: Upload binary
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v1
         with:
           files: |
