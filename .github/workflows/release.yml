@@ -73,9 +73,13 @@ jobs:
           7z a dg-bundle.7z ./dist-windows/*
           
           # Combine SFX stub + config + archive into a single portable EXE
-          # Note: We use a generic SFX stub. For simplicity, we can use the one from the 7zip-full package
-          # On MSYS2 it's usually at /mingw64/lib/7zip/7zSD.sfx
-          cat /mingw64/lib/7zip/7zSD.sfx sfx_config.txt dg-bundle.7z > dg-portable.exe
+          # Note: We use a generic SFX stub. 
+          SFX_STUB=$(find /mingw64 -name 7zSD.sfx | head -n 1)
+          if [ -z "$SFX_STUB" ]; then
+            echo "Error: 7zSD.sfx not found"
+            exit 1
+          fi
+          cat "$SFX_STUB" sfx_config.txt dg-bundle.7z > dg-portable.exe
 
       - name: Upload binary
         if: startsWith(github.ref, 'refs/tags/v')
