@@ -12,6 +12,8 @@ deno install -gA jsr:@sigmasd/dg
 
 Once installed, you can launch it using the `dg` command.
 
+Alternatively, you can download pre-built binaries from the [Releases](https://github.com/sigmaSd/dg/releases) page, including a **portable Windows version** that bundles the GTK runtime.
+
 > **Tip**: For the best experience, add a global shortcut in your Desktop Environment (e.g., `Super+D`) to the `dg` command. Since the application stays in the background, it will appear instantly.
 
 ## Features

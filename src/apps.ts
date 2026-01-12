@@ -72,11 +72,11 @@ async function getMacApps(): Promise<AppInfo[]> {
 async function getWindowsApps(): Promise<AppInfo[]> {
   try {
     const command = new Deno.Command("powershell", {
-      args: ["-Command", "Get-StartApps | ConvertTo-Json"],
+      args: ["-ExecutionPolicy", "Bypass", "-Command", "Get-StartApps | ConvertTo-Json"],
       stdout: "piped",
     });
     const { stdout } = await command.output();
-    const output = new TextDecoder().decode(stdout);
+    const output = new TextDecoder().decode(stdout).trim();
     if (!output) return [];
 
     const data = JSON.parse(output);

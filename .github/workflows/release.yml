@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - 'v*'
+    branches:
+      - feat/cross-platform-bundle
 
 permissions:
   contents: write
@@ -34,13 +36,53 @@ jobs:
       - name: Setup Deno
         uses: denoland/setup-deno@v2
 
+      - name: Setup MSYS2 (Windows)
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          cache: true
+          install: >-
+            mingw-w64-x86_64-gtk4
+            mingw-w64-x86_64-libadwaita
+            mingw-w64-x86_64-adwaita-icon-theme
+            mingw-w64-x86_64-7zip
+
       - name: Build binary
         run: |
           deno compile --allow-all --unstable-worker-options --output ${{ matrix.output }} --target ${{ matrix.target }} src/main.ts
 
+      - name: Package Windows (Portable EXE)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          mkdir -p dist-windows
+          cp dg-windows.exe dist-windows/dg.exe
+          cp /mingw64/bin/*.dll dist-windows/
+          mkdir -p dist-windows/share
+          cp -r /mingw64/share/icons dist-windows/share/
+          cp -r /mingw64/share/glib-2.0 dist-windows/share/
+          
+          # Create SFX config
+          echo ";!@Install@!UTF-8!" > sfx_config.txt
+          echo "RunProgram=\"dg.exe\"" >> sfx_config.txt
+          echo ";!@InstallEnd@!" >> sfx_config.txt
+          
+          # Archive the files
+          7z a dg-bundle.7z ./dist-windows/*
+          
+          # Combine SFX stub + config + archive into a single portable EXE
+          # Note: We use a generic SFX stub. For simplicity, we can use the one from the 7zip-full package
+          # On MSYS2 it's usually at /mingw64/lib/7zip/7zSD.sfx
+          cat /mingw64/lib/7zip/7zSD.sfx sfx_config.txt dg-bundle.7z > dg-portable.exe
+
       - name: Upload binary
         uses: softprops/action-gh-release@v1
         with:
-          files: ${{ matrix.output }}
+          files: |
+            ${{ matrix.output }}
+            dg-portable.exe
+          fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
