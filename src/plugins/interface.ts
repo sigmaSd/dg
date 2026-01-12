@@ -1,4 +1,10 @@
 /**
+ * Shared interfaces and types for the DG Launcher plugin system.
+ * This module defines the contract between the main application and its plugins.
+ * @module
+ */
+
+/**
  * Represents a single search result to be displayed in the launcher.
  */
 export interface SearchResult {

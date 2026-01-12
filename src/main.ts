@@ -1,3 +1,9 @@
+/**
+ * Main entry point for the DG Launcher application.
+ * This module initializes the GTK application and the plugin system.
+ * @module
+ */
+
 import {
   AdwApplicationWindow,
   Application,

@@ -1,3 +1,9 @@
+/**
+ * Host-side implementation for DG Launcher plugins.
+ * This module handles the creation and communication with plugin workers.
+ * @module
+ */
+
 import type {
   MainMessage,
   PluginMetadata,
