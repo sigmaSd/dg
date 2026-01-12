@@ -77,10 +77,20 @@ jobs:
           SFX_STUB=$(find /usr/lib/7zip /mingw64 -name "7zSD.sfx" -o -name "7zS.sfx" -o -name "7z.sfx" 2>/dev/null | head -n 1)
           
           if [ -z "$SFX_STUB" ]; then
-            echo "Error: SFX stub not found. Listing potential locations:"
-            find /usr/lib/7zip /mingw64 -name "*.sfx" 2>/dev/null || echo "No .sfx files found in common locations"
-            exit 1
+            echo "SFX stub not found in MSYS2, checking common Windows locations..."
+            SFX_STUB="/c/Program Files/7-Zip/7zS.sfx"
+            if [ ! -f "$SFX_STUB" ]; then
+               SFX_STUB="/c/Program Files/7-Zip/7zSD.sfx"
+            fi
           fi
+
+          if [ ! -f "$SFX_STUB" ]; then
+            echo "SFX stub still not found. Downloading 7z extra..."
+            curl -L -o 7z-extra.7z https://www.7-zip.org/a/7z2408-extra.7z
+            7z x 7z-extra.7z 7zS.sfx
+            SFX_STUB="7zS.sfx"
+          fi
+          
           echo "Using SFX stub: $SFX_STUB"
           cat "$SFX_STUB" sfx_config.txt dg-bundle.7z > dg-portable.exe
 
