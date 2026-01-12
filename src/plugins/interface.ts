@@ -28,7 +28,12 @@ export interface SearchResult {
 /**
  * List of all supported Deno permission names.
  */
-export const PERMISSION_NAMES: (keyof PluginPermissions)[] = [
+export type ExtendedPermissionName = Deno.PermissionName | "hrtime" | "ffi";
+
+/**
+ * List of all supported Deno permission names.
+ */
+export const PERMISSION_NAMES: ExtendedPermissionName[] = [
   "run",
   "read",
   "write",
@@ -43,7 +48,7 @@ export const PERMISSION_NAMES: (keyof PluginPermissions)[] = [
  * Permissions requested by a plugin, mapping Deno permission names to their allowed values.
  */
 export type PluginPermissions = {
-  [K in Deno.PermissionName]?: string[] | boolean;
+  [K in ExtendedPermissionName]?: string[] | boolean;
 };
 
 /**
