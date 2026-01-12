@@ -2,6 +2,18 @@
 
 A modern, extensible application launcher built with Deno and GTK.
 
+## Installation
+
+Install the launcher globally using Deno:
+
+```bash
+deno install -gA jsr:@sigmasd/dg
+```
+
+Once installed, you can launch it using the `dg` command.
+
+> **Tip**: For the best experience, add a global shortcut in your Desktop Environment (e.g., `Super+D`) to the `dg` command. Since the application stays in the background, it will appear instantly.
+
 ## Features
 
 - **Extensible via TypeScript Plugins**: Enhance functionality by writing simple TypeScript plugins. Plugins run in a sandboxed worker environment for safety and stability.
