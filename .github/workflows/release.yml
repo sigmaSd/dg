@@ -57,9 +57,17 @@ jobs:
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
+          set -ex
           mkdir -p dist-windows
           cp dg-windows.exe dist-windows/dg.exe
+          
+          # Only copy required DLLs to keep the bundle smaller and avoid potential issues
+          # We'll use ldd to find dependencies if needed, but for now let's just copy everything in bin
+          # but filter out some obvious non-DLLs if any, and see if it works.
+          # Actually, the previous step was: cp /mingw64/bin/*.dll dist-windows/
+          # Let's try to be more selective or at least see what's being copied.
           cp /mingw64/bin/*.dll dist-windows/
+          
           mkdir -p dist-windows/share
           cp -r /mingw64/share/icons dist-windows/share/
           cp -r /mingw64/share/glib-2.0 dist-windows/share/
