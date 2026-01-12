@@ -4,13 +4,14 @@
  * @module
  */
 
-import type {
-  MainMessage,
-  PluginMetadata,
-  PluginPermissions,
-  SearchResult,
-  Source,
-  WorkerMessage,
+import {
+  type MainMessage,
+  PERMISSION_NAMES,
+  type PluginMetadata,
+  type PluginPermissions,
+  type SearchResult,
+  type Source,
+  type WorkerMessage,
 } from "../interface.ts";
 
 /**
@@ -46,27 +47,10 @@ export class WorkerSource implements Source {
 
     // Explicitly deny permissions not requested
     const requested = metadata.permissions || {};
-    const allPerms: (keyof PluginPermissions)[] = [
-      "run",
-      "read",
-      "write",
-      "net",
-      "env",
-      "sys",
-    ];
     this.#permissions = {};
-    for (const p of allPerms) {
+    for (const p of PERMISSION_NAMES) {
       (this.#permissions as Record<string, unknown>)[p] =
         (requested as Record<string, unknown>)[p] || false;
-    }
-    // Also handle non-standard ones if any, but better to stick to PluginPermissions keys
-    if ((requested as Record<string, unknown>).ffi) {
-      (this.#permissions as Record<string, unknown>).ffi =
-        (requested as Record<string, unknown>).ffi;
-    }
-    if ((requested as Record<string, unknown>).hrtime) {
-      (this.#permissions as Record<string, unknown>).hrtime =
-        (requested as Record<string, unknown>).hrtime;
     }
   }
 

@@ -29,11 +29,14 @@ export class AppSource implements Source {
       score: app.name.toLowerCase().startsWith(q) ? 100 : 50,
       onActivate: () => {
         console.log(`Launching: ${app.name}`);
-        const command = new Deno.Command("sh", {
-          args: ["-c", `${app.exec} &`],
+        // Handle exec with arguments
+        const [cmd, ...args] = app.exec.split(" ");
+        const command = new Deno.Command(cmd, {
+          args,
           stdin: "null",
           stdout: "null",
           stderr: "null",
+          detached: true,
         });
         command.spawn();
       },

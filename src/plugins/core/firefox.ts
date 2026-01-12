@@ -73,11 +73,22 @@ export class FirefoxSource implements Source {
       score: 10 + Math.min(row.visit_count, 20),
       onActivate: () => {
         console.log(`Opening: ${row.url}`);
-        const command = new Deno.Command("xdg-open", {
-          args: [row.url],
+        let commandName = "xdg-open";
+        let args = [row.url];
+
+        if (Deno.build.os === "windows") {
+          commandName = "cmd";
+          args = ["/c", "start", row.url];
+        } else if (Deno.build.os === "darwin") {
+          commandName = "open";
+        }
+
+        const command = new Deno.Command(commandName, {
+          args,
           stdin: "null",
           stdout: "null",
           stderr: "null",
+          detached: true,
         });
         command.spawn();
       },

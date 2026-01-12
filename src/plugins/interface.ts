@@ -26,6 +26,20 @@ export interface SearchResult {
 }
 
 /**
+ * List of all supported Deno permission names.
+ */
+export const PERMISSION_NAMES: (keyof PluginPermissions)[] = [
+  "run",
+  "read",
+  "write",
+  "net",
+  "env",
+  "sys",
+  "ffi",
+  "hrtime",
+];
+
+/**
  * Permissions requested by a plugin, mapping Deno permission names to their allowed values.
  */
 export type PluginPermissions = {

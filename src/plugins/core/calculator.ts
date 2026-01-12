@@ -38,16 +38,37 @@ export class CalculatorSource implements Source {
         subtitle: `Result of ${query}`,
         icon: "accessories-calculator",
         score: 110, // High score so it appears on top
-        onActivate: () => {
+        onActivate: async () => {
           console.log(`Copying result to clipboard: ${result}`);
-          // Copy to clipboard using wl-copy or xclip if available
-          const command = new Deno.Command("sh", {
-            args: [
+          const text = result.toString();
+
+          let commandName = "";
+          let args: string[] = [];
+
+          if (Deno.build.os === "linux") {
+            // Try wl-copy then xclip
+            commandName = "sh";
+            args = [
               "-c",
-              `echo -n "${result}" | wl-copy || echo -n "${result}" | xclip -selection clipboard`,
-            ],
-          });
-          command.spawn();
+              `echo -n "${text}" | wl-copy || echo -n "${text}" | xclip -selection clipboard`,
+            ];
+          } else if (Deno.build.os === "darwin") {
+            commandName = "pbcopy";
+          } else if (Deno.build.os === "windows") {
+            commandName = "clip";
+          }
+
+          if (commandName) {
+            const command = new Deno.Command(commandName, {
+              args,
+              stdin: "piped",
+            });
+            const child = command.spawn();
+            const writer = child.stdin.getWriter();
+            await writer.write(new TextEncoder().encode(text));
+            await writer.close();
+            await child.status;
+          }
         },
       }]);
     } catch {

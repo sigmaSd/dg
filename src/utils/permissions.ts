@@ -1,5 +1,8 @@
 import { type AdwApplicationWindow, MessageDialog } from "@sigmasd/gtk";
-import type { PluginPermissions } from "../plugins/interface.ts";
+import {
+  PERMISSION_NAMES,
+  type PluginPermissions,
+} from "../plugins/interface.ts";
 
 export function normalizePermissions(
   p: PluginPermissions,
@@ -18,44 +21,33 @@ export function normalizePermissions(
 }
 
 export function formatPermissions(p: PluginPermissions): string {
-  let text = "";
+  const lines: string[] = [];
 
-  if (Array.isArray(p.net) && p.net.length > 0) {
-    text += "• Network Access:\n" + p.net.map((d) => `  - ${d}`).join("\n") +
-      "\n\n";
-  }
-  if (Array.isArray(p.read) && p.read.length > 0) {
-    text += "• Read Files:\n" + p.read.map((f) => `  - ${f}`).join("\n") +
-      "\n\n";
-  }
-  if (Array.isArray(p.write) && p.write.length > 0) {
-    text += "• Write Files:\n" + p.write.map((f) => `  - ${f}`).join("\n") +
-      "\n\n";
-  }
-  if (Array.isArray(p.run) && p.run.length > 0) {
-    text += "• Run Subprocesses:\n" + p.run.map((c) => `  - ${c}`).join("\n") +
-      "\n\n";
-  }
-  if (Array.isArray(p.env) && p.env.length > 0) {
-    text += "• Environment Variables:\n" + p.env.map((e) =>
-      `  - ${e}`
-    ).join("\n") + "\n\n";
-  }
+  const labels: Record<string, string> = {
+    net: "Network Access",
+    read: "Read Files",
+    write: "Write Files",
+    run: "Run Subprocesses",
+    env: "Environment Variables",
+    sys: "System Information",
+    ffi: "FFI (Foreign Function Interface)",
+    hrtime: "High Resolution Time",
+  };
 
-  // Booleans
-  if (p.net === true) text += "• Full Network Access\n\n";
-  if (p.read === true) text += "• Read All Files\n\n";
-  if (p.write === true) text += "• Write All Files\n\n";
-  if (p.run === true) text += "• Run All Commands\n\n";
-  if (p.env === true) text += "• Access All Env Vars\n\n";
-  if ((p as Record<string, unknown>).ffi === true) {
-    text += "• FFI (Foreign Function Interface)\n\n";
-  }
-  if ((p as Record<string, unknown>).hrtime === true) {
-    text += "• High Resolution Time\n\n";
+  for (const key of PERMISSION_NAMES) {
+    const val = p[key];
+    if (!val) continue;
+
+    const label = labels[key as string] || key;
+    if (val === true) {
+      lines.push(`• Full ${label}`);
+    } else if (Array.isArray(val) && val.length > 0) {
+      lines.push(`• ${label}:`);
+      val.forEach((item) => lines.push(`  - ${item}`));
+    }
   }
 
-  return text.trim() || "No special permissions requested.";
+  return lines.join("\n").trim() || "No special permissions requested.";
 }
 
 export function promptPermissions(
