@@ -53,84 +53,60 @@ jobs:
         run: |
           deno compile --allow-all --unstable-worker-options --output ${{ matrix.output }} --target ${{ matrix.target }} src/main.ts
 
-      - name: Package Windows (Portable EXE)
+      - name: Package Windows (Portable ZIP and Installer)
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
           mkdir -p dist-windows
           cp dg-windows.exe dist-windows/dg.exe
-          
-          # Only copy required DLLs to keep the bundle smaller and avoid potential issues
-          # We'll use ldd to find dependencies if needed, but for now let's just copy everything in bin
-          # but filter out some obvious non-DLLs if any, and see if it works.
-          # Actually, the previous step was: cp /mingw64/bin/*.dll dist-windows/
-          # Let's try to be more selective or at least see what's being copied.
           cp /mingw64/bin/*.dll dist-windows/
-          
           mkdir -p dist-windows/share
           cp -r /mingw64/share/icons dist-windows/share/
           cp -r /mingw64/share/glib-2.0 dist-windows/share/
           
-          # Create SFX config
-          echo ";!@Install@!UTF-8!" > sfx_config.txt
-          echo "RunProgram=\"dg.exe\"" >> sfx_config.txt
-          echo ";!@InstallEnd@!" >> sfx_config.txt
+          # Compile schemas just in case
+          glib-compile-schemas /mingw64/share/glib-2.0/schemas/
+          cp /mingw64/share/glib-2.0/schemas/gschemas.compiled dist-windows/share/glib-2.0/schemas/
           
-          # Archive the files
-          7z a dg-bundle.7z ./dist-windows/*
-          
-          # Also create a simple ZIP for fallback
+          # Create ZIP bundle
           7z a dg-windows.zip ./dist-windows/*
-
-          # Combine SFX stub + config + archive into a single portable EXE
-          # Note: We use a generic SFX stub. 
-          # Use a more robust way to find the stub that doesn't trigger set -e failure
-          SFX_STUB=""
-          for dir in "/usr/lib/7zip" "/mingw64/lib/7zip" "/mingw64/bin"; do
-            if [ -d "$dir" ]; then
-              FOUND=$(find "$dir" -name "7zSD.sfx" -o -name "7zS.sfx" -o -name "7z.sfx" 2>/dev/null | head -n 1)
-              if [ -n "$FOUND" ]; then
-                SFX_STUB="$FOUND"
-                break
-              fi
-            fi
-          done
           
-          if [ -z "$SFX_STUB" ]; then
-            echo "SFX stub not found in MSYS2, checking common Windows locations..."
-            for stub in "/c/Program Files/7-Zip/7zS.sfx" "/c/Program Files/7-Zip/7zSD.sfx"; do
-              if [ -f "$stub" ]; then
-                SFX_STUB="$stub"
-                break
-              fi
-            done
-          fi
+          # Create Inno Setup script
+          cat <<EOF > installer.iss
+          [Setup]
+          AppName=dg
+          AppVersion=${{ github.ref_name }}
+          DefaultDirName={autopf}\dg
+          DefaultGroupName=dg
+          OutputDir=.
+          OutputBaseFilename=dg-setup
+          Compression=lzma
+          SolidCompression=yes
+          ArchitecturesInstallIn64BitMode=x64
 
-          if [ -z "$SFX_STUB" ]; then
-            echo "SFX stub still not found. Downloading 7z extra..."
-            if curl -L -o 7z-extra.7z https://www.7-zip.org/a/7z2408-extra.7z; then
-              7z x 7z-extra.7z 7zS.sfx || true
-              if [ -f "7zS.sfx" ]; then
-                SFX_STUB="7zS.sfx"
-              fi
-            fi
-          fi
-          
-          if [ -n "$SFX_STUB" ]; then
-            echo "Using SFX stub: $SFX_STUB"
-            cat "$SFX_STUB" sfx_config.txt dg-bundle.7z > dg-portable.exe
-          else
-            echo "Warning: Could not create portable EXE, but ZIP bundle is available."
-          fi
+          [Files]
+          Source: "dist-windows\dg.exe"; DestDir: "{app}"; Flags: ignoreversion
+          Source: "dist-windows\*.dll"; DestDir: "{app}"; Flags: ignoreversion
+          Source: "dist-windows\share\*"; DestDir: "{app}\share"; Flags: ignoreversion recursesubdirs
+
+          [Icons]
+          Name: "{group}\dg"; Filename: "{app}\dg.exe"
+          Name: "{autodesktop}\dg"; Filename: "{app}\dg.exe"
+          EOF
+
+          # Run Inno Setup compiler
+          "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" installer.iss || iscc installer.iss || echo "ISCC not found"
 
       - name: Upload binary
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            ${{ matrix.output }}
-            dg-portable.exe
+            dg-setup.exe
             dg-windows.zip
+            dg-linux
+            dg-macos-x86_64
+            dg-macos-aarch64
           fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
