@@ -57,7 +57,6 @@ jobs:
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
-          set -ex
           mkdir -p dist-windows
           cp dg-windows.exe dist-windows/dg.exe
           
@@ -80,27 +79,49 @@ jobs:
           # Archive the files
           7z a dg-bundle.7z ./dist-windows/*
           
+          # Also create a simple ZIP for fallback
+          7z a dg-windows.zip ./dist-windows/*
+
           # Combine SFX stub + config + archive into a single portable EXE
           # Note: We use a generic SFX stub. 
-          SFX_STUB=$(find /usr/lib/7zip /mingw64 -name "7zSD.sfx" -o -name "7zS.sfx" -o -name "7z.sfx" 2>/dev/null | head -n 1)
+          # Use a more robust way to find the stub that doesn't trigger set -e failure
+          SFX_STUB=""
+          for dir in "/usr/lib/7zip" "/mingw64/lib/7zip" "/mingw64/bin"; do
+            if [ -d "$dir" ]; then
+              FOUND=$(find "$dir" -name "7zSD.sfx" -o -name "7zS.sfx" -o -name "7z.sfx" 2>/dev/null | head -n 1)
+              if [ -n "$FOUND" ]; then
+                SFX_STUB="$FOUND"
+                break
+              fi
+            fi
+          done
           
           if [ -z "$SFX_STUB" ]; then
             echo "SFX stub not found in MSYS2, checking common Windows locations..."
-            SFX_STUB="/c/Program Files/7-Zip/7zS.sfx"
-            if [ ! -f "$SFX_STUB" ]; then
-               SFX_STUB="/c/Program Files/7-Zip/7zSD.sfx"
-            fi
+            for stub in "/c/Program Files/7-Zip/7zS.sfx" "/c/Program Files/7-Zip/7zSD.sfx"; do
+              if [ -f "$stub" ]; then
+                SFX_STUB="$stub"
+                break
+              fi
+            done
           fi
 
-          if [ ! -f "$SFX_STUB" ]; then
+          if [ -z "$SFX_STUB" ]; then
             echo "SFX stub still not found. Downloading 7z extra..."
-            curl -L -o 7z-extra.7z https://www.7-zip.org/a/7z2408-extra.7z
-            7z x 7z-extra.7z 7zS.sfx
-            SFX_STUB="7zS.sfx"
+            if curl -L -o 7z-extra.7z https://www.7-zip.org/a/7z2408-extra.7z; then
+              7z x 7z-extra.7z 7zS.sfx || true
+              if [ -f "7zS.sfx" ]; then
+                SFX_STUB="7zS.sfx"
+              fi
+            fi
           fi
           
-          echo "Using SFX stub: $SFX_STUB"
-          cat "$SFX_STUB" sfx_config.txt dg-bundle.7z > dg-portable.exe
+          if [ -n "$SFX_STUB" ]; then
+            echo "Using SFX stub: $SFX_STUB"
+            cat "$SFX_STUB" sfx_config.txt dg-bundle.7z > dg-portable.exe
+          else
+            echo "Warning: Could not create portable EXE, but ZIP bundle is available."
+          fi
 
       - name: Upload binary
         if: startsWith(github.ref, 'refs/tags/v')
@@ -109,6 +130,7 @@ jobs:
           files: |
             ${{ matrix.output }}
             dg-portable.exe
+            dg-windows.zip
           fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
