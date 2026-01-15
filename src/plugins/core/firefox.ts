@@ -98,8 +98,9 @@ export class FirefoxSource implements Source {
 
       // Boost for recency (sites visited in last 24h get significant boost)
       if (row.last_visit_date) {
-        const hoursSinceVisit = (now - row.last_visit_date) / (1000 * 1000 * 3600);
-        if (hoursSinceVisit < 1) score += 50;      // Last hour
+        const hoursSinceVisit = (now - row.last_visit_date) /
+          (1000 * 1000 * 3600);
+        if (hoursSinceVisit < 1) score += 50; // Last hour
         else if (hoursSinceVisit < 24) score += 30; // Last day
         else if (hoursSinceVisit < 168) score += 10; // Last week
       }
