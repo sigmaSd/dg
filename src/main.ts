@@ -232,7 +232,8 @@ class DGApp {
       const next = this.#listBox.getNextSibling(child);
       const w = new Widget(child);
       this.#listBox.remove(w);
-      w.unref();
+      // Note: GTK automatically unrefs when removing from container
+      // Manual unref() here causes double-free and segfaults
       child = next;
     }
 
