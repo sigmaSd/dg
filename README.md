@@ -2,6 +2,8 @@
 
 A modern, extensible application launcher built with Deno and GTK.
 
+<img src="./distro/demo.png" />
+
 ## Installation
 
 Install the launcher globally using Deno:
