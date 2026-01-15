@@ -5,7 +5,7 @@ export interface AppInfo {
   path: string;
 }
 
-export async function getApps(): Promise<AppInfo[]> {
+export function getApps(): Promise<AppInfo[]> {
   if (Deno.build.os === "linux") {
     return getLinuxApps();
   }
@@ -15,7 +15,7 @@ export async function getApps(): Promise<AppInfo[]> {
   if (Deno.build.os === "windows") {
     return getWindowsApps();
   }
-  return [];
+  return Promise.resolve([]);
 }
 
 async function getLinuxApps(): Promise<AppInfo[]> {
@@ -72,7 +72,12 @@ async function getMacApps(): Promise<AppInfo[]> {
 async function getWindowsApps(): Promise<AppInfo[]> {
   try {
     const command = new Deno.Command("powershell", {
-      args: ["-ExecutionPolicy", "Bypass", "-Command", "Get-StartApps | ConvertTo-Json"],
+      args: [
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "Get-StartApps | ConvertTo-Json",
+      ],
       stdout: "piped",
     });
     const { stdout } = await command.output();

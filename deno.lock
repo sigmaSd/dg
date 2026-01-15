@@ -2,22 +2,18 @@
   "version": "5",
   "specifiers": {
     "jsr:@sigmasd/dg-plugin-test@*": "0.1.1",
-    "jsr:@sigmasd/gtk@0.11.0": "0.11.0",
+    "jsr:@sigmasd/gtk@0.12.0": "0.12.0",
     "jsr:@std/assert@*": "1.0.16",
     "jsr:@std/assert@^1.0.8": "1.0.16",
     "jsr:@std/internal@^1.0.12": "1.0.12",
-    "jsr:@std/path@^1.0.8": "1.1.3",
-    "npm:@jsr/sigma__deno-compat@0.9.0": "0.9.0"
+    "jsr:@std/path@^1.0.8": "1.1.3"
   },
   "jsr": {
     "@sigmasd/dg-plugin-test@0.1.1": {
       "integrity": "b0bf820d9db5bda7694617ddf33eb2b3241816c4c356cab398d22978685bc22e"
     },
-    "@sigmasd/gtk@0.11.0": {
-      "integrity": "b67cd693a48ddba64ba401659688a1673630a7164bd7d778b2ccff54d4964896",
-      "dependencies": [
-        "npm:@jsr/sigma__deno-compat"
-      ]
+    "@sigmasd/gtk@0.12.0": {
+      "integrity": "a961ccbd963d6f5fcd76ab7aa83bb0b76c62a44f4f7a6ad1cf107d9f42458e6b"
     },
     "@std/assert@1.0.16": {
       "integrity": "6a7272ed1eaa77defe76e5ff63ca705d9c495077e2d5fd0126d2b53fc5bd6532",
@@ -35,15 +31,9 @@
       ]
     }
   },
-  "npm": {
-    "@jsr/sigma__deno-compat@0.9.0": {
-      "integrity": "sha512-aR+PgQ2FXHc94QKFJTKpSl7W1PlL8iECN7wMcNbjVCOtPjqgcYS8qEKbiN7W1d/TvxgwFJmSSIpWXwtXw+NDmg==",
-      "tarball": "https://npm.jsr.io/~/11/@jsr/sigma__deno-compat/0.9.0.tgz"
-    }
-  },
   "workspace": {
     "dependencies": [
-      "jsr:@sigmasd/gtk@0.11.0",
+      "jsr:@sigmasd/gtk@0.12.0",
       "jsr:@std/assert@^1.0.8",
       "jsr:@std/path@^1.0.8"
     ]
