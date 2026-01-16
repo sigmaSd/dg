@@ -9,7 +9,7 @@ A modern, extensible application launcher built with Deno and GTK.
 Install the launcher globally using Deno:
 
 ```bash
-deno install -gA jsr:@sigmasd/dg
+deno install -gA --unstable-worker-options jsr:@sigmasd/dg
 ```
 
 Once installed, you can launch it using the `dg` command.
