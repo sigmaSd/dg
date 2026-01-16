@@ -25,7 +25,7 @@ export class PluginLoader {
     this.#plugins.push(new AppSource());
     this.#plugins.push(new FirefoxSource());
     this.#plugins.push(new StoreSource(window));
-    this.#plugins.push(new CalculatorSource());
+    this.#plugins.push(new CalculatorSource(window));
 
     // 2. Load User Plugins from config
     const config = await this.#configManager.read();
@@ -80,7 +80,7 @@ export class PluginLoader {
         }
 
         // 2. Initialize Worker
-        const plugin = new WorkerSource(pluginPath, meta);
+        const plugin = new WorkerSource(pluginPath, meta, window);
         this.#plugins.push(plugin);
       } catch (e) {
         console.error(`Failed to load plugin ${url}:`, e);

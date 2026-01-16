@@ -39,13 +39,14 @@ export class StoreSource implements Source {
       if (this.#installedPlugins.length === 0) {
         return [{
           title: "No plugins installed",
-          subtitle: "Type 'store <query>' to find plugins on JSR",
+          subtitle:
+            "Type 'store all' to browse all plugins, or 'store <query>' to search",
           score: 0,
           onActivate: () => {},
         }];
       }
 
-      return this.#installedPlugins.map((url) => {
+      const results: SearchResult[] = this.#installedPlugins.map((url) => {
         // Parse version from URL like jsr:@scope/pkg@version
         const match = url.match(/jsr:@([^/]+)\/([^@]+)@(.+)/);
         const displayTitle = match ? `@${match[1]}/${match[2]}` : url;
@@ -62,6 +63,17 @@ export class StoreSource implements Source {
           },
         };
       });
+
+      // Append suggestion to browse all
+      results.push({
+        title: "Browse Community Plugins",
+        subtitle: "Type 'store all' to list all available plugins",
+        score: 0,
+        icon: "system-search",
+        onActivate: () => {},
+      });
+
+      return results;
     }
 
     // Debounce logic within the async search
@@ -89,10 +101,13 @@ export class StoreSource implements Source {
     signal: AbortSignal,
   ): Promise<SearchResult[]> {
     try {
+      // If query is "all", search for all plugins
+      const searchTerm = query === "all"
+        ? "dg-plugin-"
+        : `dg-plugin-${encodeURIComponent(query)}`;
+
       const resp = await fetch(
-        `https://jsr.io/api/packages?query=dg-plugin-${
-          encodeURIComponent(query)
-        }`,
+        `https://jsr.io/api/packages?query=${searchTerm}`,
         { signal },
       );
       if (!resp.ok) return [];

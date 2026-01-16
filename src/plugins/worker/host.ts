@@ -13,6 +13,7 @@ import {
   type Source,
   type WorkerMessage,
 } from "../interface.ts";
+import type { AdwApplicationWindow } from "@sigmasd/gtk";
 
 /**
  * Host implementation for running plugins in a Worker.
@@ -32,14 +33,21 @@ export class WorkerSource implements Source {
   #permissions: PluginPermissions;
   #pendingSearches = new Map<number, (results: SearchResult[]) => void>();
   #searchIdCounter = 0;
+  #window?: AdwApplicationWindow;
 
   /**
    * Creates a new WorkerSource.
    * @param path Path to the plugin module
    * @param metadata Metadata describing the plugin
+   * @param window Optional main window instance (required for clipboard access)
    */
-  constructor(path: string, metadata: PluginMetadata) {
+  constructor(
+    path: string,
+    metadata: PluginMetadata,
+    window?: AdwApplicationWindow,
+  ) {
     this.#path = path;
+    this.#window = window;
     this.id = metadata.id;
     this.name = metadata.name;
     this.description = metadata.description;
@@ -156,6 +164,14 @@ export class WorkerSource implements Source {
         }
       } else if (msg.type === "log") {
         console.log(`[Plugin ${this.id}]`, msg.message);
+      } else if (msg.type === "copy") {
+        if (this.#window) {
+          this.#window.getDisplay().getClipboard().set(msg.text);
+        } else {
+          console.warn(
+            `[Plugin ${this.id}] Tried to copy to clipboard but no window is available.`,
+          );
+        }
       }
     };
 

@@ -1,10 +1,16 @@
 import type { SearchResult, Source } from "../interface.ts";
+import type { AdwApplicationWindow } from "@sigmasd/gtk";
 
 export class CalculatorSource implements Source {
   id = "calculator";
   name = "Calculator";
   description = "Perform simple calculations";
   trigger = undefined; // Make it global
+  #window?: AdwApplicationWindow;
+
+  constructor(window?: AdwApplicationWindow) {
+    this.#window = window;
+  }
 
   async init(): Promise<void> {}
 
@@ -35,39 +41,16 @@ export class CalculatorSource implements Source {
 
       return Promise.resolve([{
         title: result.toString(),
-        subtitle: `Result of ${query}`,
+        subtitle: `Result of ${query} (Press Enter to Copy)`,
         icon: "accessories-calculator",
         score: 110, // High score so it appears on top
-        onActivate: async () => {
+        onActivate: () => {
           console.log(`Copying result to clipboard: ${result}`);
           const text = result.toString();
-
-          let commandName = "";
-          let args: string[] = [];
-
-          if (Deno.build.os === "linux") {
-            // Try wl-copy then xclip
-            commandName = "sh";
-            args = [
-              "-c",
-              `echo -n "${text}" | wl-copy || echo -n "${text}" | xclip -selection clipboard`,
-            ];
-          } else if (Deno.build.os === "darwin") {
-            commandName = "pbcopy";
-          } else if (Deno.build.os === "windows") {
-            commandName = "clip";
-          }
-
-          if (commandName) {
-            const command = new Deno.Command(commandName, {
-              args,
-              stdin: "piped",
-            });
-            const child = command.spawn();
-            const writer = child.stdin.getWriter();
-            await writer.write(new TextEncoder().encode(text));
-            await writer.close();
-            await child.status;
+          if (this.#window) {
+            this.#window.getDisplay().getClipboard().set(text);
+          } else {
+            console.warn("Cannot copy to clipboard: window not available");
           }
         },
       }]);

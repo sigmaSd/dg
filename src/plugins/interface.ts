@@ -120,4 +120,5 @@ export type MainMessage =
       resultId: string;
     }[];
   }
-  | { type: "log"; level: "info" | "error"; message: string };
+  | { type: "log"; level: "info" | "error"; message: string }
+  | { type: "copy"; text: string };

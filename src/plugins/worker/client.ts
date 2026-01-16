@@ -38,6 +38,15 @@ export abstract class WorkerPlugin {
    * @param _resultId The ID of the activated result
    */
   async onActivate(_resultId: string): Promise<void> {}
+
+  /**
+   * Helper to copy text to the system clipboard.
+   * @param text The text to copy
+   */
+  copyToClipboard(text: string) {
+    const msg: MainMessage = { type: "copy", text };
+    (self as unknown as Worker).postMessage(msg);
+  }
 }
 
 /**
