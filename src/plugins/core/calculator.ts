@@ -1,5 +1,5 @@
 import type { SearchResult, Source } from "../interface.ts";
-import type { AdwApplicationWindow } from "@sigmasd/gtk";
+import type { AdwApplicationWindow } from "@sigmasd/gtk/adw";
 
 export class CalculatorSource implements Source {
   id = "calculator";

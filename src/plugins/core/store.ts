@@ -2,7 +2,7 @@ import type { SearchResult, Source } from "../interface.ts";
 import { ConfigManager } from "../../config.ts";
 import { WorkerSource } from "../worker/host.ts";
 import { promptPermissions } from "../../utils/permissions.ts";
-import type { AdwApplicationWindow } from "@sigmasd/gtk";
+import type { AdwApplicationWindow } from "@sigmasd/gtk/adw";
 
 export class StoreSource implements Source {
   id = "store";

@@ -121,4 +121,5 @@ export type MainMessage =
     }[];
   }
   | { type: "log"; level: "info" | "error"; message: string }
-  | { type: "copy"; text: string };
+  | { type: "copy"; text: string }
+  | { type: "activated"; id: string };

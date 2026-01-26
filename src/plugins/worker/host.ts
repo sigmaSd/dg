@@ -13,7 +13,7 @@ import {
   type Source,
   type WorkerMessage,
 } from "../interface.ts";
-import type { AdwApplicationWindow } from "@sigmasd/gtk";
+import type { AdwApplicationWindow } from "@sigmasd/gtk/adw";
 
 /**
  * Host implementation for running plugins in a Worker.
@@ -32,6 +32,7 @@ export class WorkerSource implements Source {
   #path: string;
   #permissions: PluginPermissions;
   #pendingSearches = new Map<number, (results: SearchResult[]) => void>();
+  #pendingActivations = new Map<string, () => void>();
   #searchIdCounter = 0;
   #window?: AdwApplicationWindow;
 
@@ -153,18 +154,40 @@ export class WorkerSource implements Source {
             subtitle: r.subtitle,
             score: r.score,
             onActivate: () => {
-              this.#worker?.postMessage({
-                type: "activate",
-                id: r.resultId,
-              } as WorkerMessage);
+              return new Promise<void>((resolve) => {
+                if (!r.resultId) {
+                  resolve();
+                  return;
+                }
+                this.#pendingActivations.set(r.resultId, resolve);
+                this.#worker?.postMessage({
+                  type: "activate",
+                  id: r.resultId,
+                } as WorkerMessage);
+
+                // Safety timeout
+                setTimeout(() => {
+                  if (this.#pendingActivations.has(r.resultId)) {
+                    this.#pendingActivations.delete(r.resultId);
+                    resolve();
+                  }
+                }, 5000);
+              });
             },
           }));
           resolve(hydratedResults);
           this.#pendingSearches.delete(msg.id);
         }
+      } else if (msg.type === "activated") {
+        const resolve = this.#pendingActivations.get(msg.id);
+        if (resolve) {
+          resolve();
+          this.#pendingActivations.delete(msg.id);
+        }
       } else if (msg.type === "log") {
         console.log(`[Plugin ${this.id}]`, msg.message);
       } else if (msg.type === "copy") {
+        console.log(`[Plugin ${this.id}] Host received copy request for: ${msg.text.substring(0, 20)}...`);
         if (this.#window) {
           this.#window.getDisplay().getClipboard().set(msg.text);
         } else {

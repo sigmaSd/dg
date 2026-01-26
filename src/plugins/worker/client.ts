@@ -1,3 +1,5 @@
+/// <reference lib="webworker" />
+
 /**
  * Client-side utilities for DG Launcher plugins running in a worker.
  * This module provides the base class and setup functions for worker-based plugins.
@@ -45,7 +47,7 @@ export abstract class WorkerPlugin {
    */
   copyToClipboard(text: string) {
     const msg: MainMessage = { type: "copy", text };
-    (self as unknown as Worker).postMessage(msg);
+    self.postMessage(msg);
   }
 }
 
@@ -56,12 +58,12 @@ export abstract class WorkerPlugin {
 export function setupWorker(plugin: WorkerPlugin, metadata: PluginMetadata) {
   // Notify main thread we are ready
   const readyMsg: MainMessage = { type: "ready", metadata };
-  (self as unknown as Worker).postMessage(readyMsg);
+  self.postMessage(readyMsg);
 
   // Store results map to handle activations: resultId -> callback
   const resultMap = new Map<string, () => Promise<void> | void>();
 
-  (self as unknown as Worker).onmessage = async (
+  self.onmessage = async (
     e: MessageEvent<WorkerMessage>,
   ) => {
     const msg = e.data;
@@ -89,13 +91,15 @@ export function setupWorker(plugin: WorkerPlugin, metadata: PluginMetadata) {
           id: msg.id,
           results: transportResults,
         };
-        (self as unknown as Worker).postMessage(response);
+        self.postMessage(response);
       } else if (msg.type === "activate") {
         const action = resultMap.get(msg.id);
         if (action) {
           await action();
         }
         await plugin.onActivate(msg.id);
+        const response: MainMessage = { type: "activated", id: msg.id };
+        self.postMessage(response);
       }
     } catch (err) {
       const errorMsg: MainMessage = {
@@ -103,7 +107,7 @@ export function setupWorker(plugin: WorkerPlugin, metadata: PluginMetadata) {
         level: "error",
         message: String(err),
       };
-      (self as unknown as Worker).postMessage(errorMsg);
+      self.postMessage(errorMsg);
     }
   };
 }

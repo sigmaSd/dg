@@ -2,7 +2,7 @@ import type { Source } from "./plugins/interface.ts";
 import { ConfigManager } from "./config.ts";
 import { WorkerSource } from "./plugins/worker/host.ts";
 import * as path from "@std/path";
-import type { AdwApplicationWindow } from "@sigmasd/gtk";
+import type { AdwApplicationWindow } from "@sigmasd/gtk/adw";
 import {
   normalizePermissions,
   promptPermissions,
