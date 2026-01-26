@@ -187,7 +187,11 @@ export class WorkerSource implements Source {
       } else if (msg.type === "log") {
         console.log(`[Plugin ${this.id}]`, msg.message);
       } else if (msg.type === "copy") {
-        console.log(`[Plugin ${this.id}] Host received copy request for: ${msg.text.substring(0, 20)}...`);
+        console.log(
+          `[Plugin ${this.id}] Host received copy request for: ${
+            msg.text.substring(0, 20)
+          }...`,
+        );
         if (this.#window) {
           this.#window.getDisplay().getClipboard().set(msg.text);
         } else {

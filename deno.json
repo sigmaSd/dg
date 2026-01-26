@@ -16,5 +16,9 @@
     "@sigmasd/gtk/eventloop": "jsr:@sigmasd/gtk@0.27.0/eventloop",
     "@std/path": "jsr:@std/path@^1.1.4",
     "@std/assert": "jsr:@std/assert@^1.0.17"
+  },
+
+  "compilerOptions": {
+    "lib": ["deno.ns", "deno.worker", "deno.unstable"]
   }
 }

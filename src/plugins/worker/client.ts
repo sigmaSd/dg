@@ -1,5 +1,3 @@
-/// <reference lib="webworker" />
-
 /**
  * Client-side utilities for DG Launcher plugins running in a worker.
  * This module provides the base class and setup functions for worker-based plugins.
