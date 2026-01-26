@@ -65,7 +65,9 @@ class DGApp {
     this.#setLoading(true, "Loading plugins...");
     this.#plugins = await this.#loader.loadPlugins(this.#win);
     this.#setLoading(false);
-    this.#updateSearch("");
+    // Use the current text in the entry if the user already started typing
+    const currentQuery = this.#searchEntry?.getText() || "";
+    this.#updateSearch(currentQuery);
   }
 
   #setLoading(loading: boolean, message?: string) {
@@ -82,26 +84,30 @@ class DGApp {
   }
 
   #setupActions() {
+    if (!this.#win) return;
+
     // Quit Action (Ctrl+Q)
     const quitAction = new SimpleAction("quit");
     quitAction.connect("activate", () => {
+      console.log("Quit action activated");
       if (this.#win) {
         this.#win.destroy();
         this.#win = undefined;
       }
       this.#eventLoop.stop();
       this.#app.quit();
+      Deno.exit(0);
     });
-    this.#app.addAction(quitAction);
-    this.#app.setAccelsForAction("app.quit", ["<Control>q"]);
+    this.#win.addAction(quitAction);
+    this.#app.setAccelsForAction("win.quit", ["<Control>q"]);
 
     // Hide Action (Escape)
     const hideAction = new SimpleAction("hide");
     hideAction.connect("activate", () => {
       this.#win?.setVisible(false);
     });
-    this.#app.addAction(hideAction);
-    this.#app.setAccelsForAction("app.hide", ["Escape"]);
+    this.#win.addAction(hideAction);
+    this.#app.setAccelsForAction("win.hide", ["Escape"]);
   }
 
   #buildUI() {

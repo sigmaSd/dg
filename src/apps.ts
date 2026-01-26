@@ -20,24 +20,40 @@ export function getApps(): Promise<AppInfo[]> {
 
 async function getLinuxApps(): Promise<AppInfo[]> {
   const apps: AppInfo[] = [];
-  const searchPaths = [
-    "/usr/share/applications",
-    `${Deno.env.get("HOME")}/.local/share/applications`,
-  ];
+  const xdgDataDirs = Deno.env.get("XDG_DATA_DIRS") ||
+    "/usr/local/share:/usr/share";
+  const searchPaths = xdgDataDirs.split(":").map((p) => `${p}/applications`);
+
+  const xdgDataHome = Deno.env.get("XDG_DATA_HOME") ||
+    `${Deno.env.get("HOME")}/.local/share`;
+  const userAppDir = `${xdgDataHome}/applications`;
+
+  if (!searchPaths.includes(userAppDir)) {
+    searchPaths.unshift(userAppDir);
+  }
+
+  const seenFiles = new Set<string>();
 
   for (const path of searchPaths) {
     try {
       for await (const entry of Deno.readDir(path)) {
-        if (entry.isFile && entry.name.endsWith(".desktop")) {
-          const content = await Deno.readTextFile(`${path}/${entry.name}`);
-          const app = parseDesktopFile(content, `${path}/${entry.name}`);
+        if (
+          (entry.isFile || entry.isSymlink) &&
+          entry.name.endsWith(".desktop") && !seenFiles.has(entry.name)
+        ) {
+          seenFiles.add(entry.name);
+          const fullPath = `${path}/${entry.name}`;
+          const content = await Deno.readTextFile(fullPath);
+          const app = parseDesktopFile(content, fullPath);
           if (app) {
             apps.push(app);
           }
         }
       }
-    } catch {
-      // Ignore errors (e.g., directory doesn't exist)
+    } catch (e) {
+      if (!(e instanceof Deno.errors.NotFound)) {
+        console.error(`Error reading directory ${path}:`, e);
+      }
     }
   }
 
@@ -98,7 +114,10 @@ async function getWindowsApps(): Promise<AppInfo[]> {
   }
 }
 
-function parseDesktopFile(content: string, path: string): AppInfo | null {
+export function parseDesktopFile(
+  content: string,
+  path: string,
+): AppInfo | null {
   const lines = content.split("\n");
   let isDesktopEntry = false;
   let name = "";
@@ -118,20 +137,26 @@ function parseDesktopFile(content: string, path: string): AppInfo | null {
     if (trimmed.startsWith("[") && trimmed !== "[Desktop Entry]") break;
 
     if (trimmed.startsWith("Name=")) {
-      name = trimmed.substring(5);
+      name = trimmed.substring(5).split("#")[0].trim();
     } else if (trimmed.startsWith("Exec=")) {
-      exec = trimmed.substring(5);
+      exec = trimmed.substring(5).split("#")[0].trim();
     } else if (trimmed.startsWith("Icon=")) {
-      icon = trimmed.substring(5);
-    } else if (trimmed.startsWith("NoDisplay=true")) {
-      noDisplay = true;
+      icon = trimmed.substring(5).split("#")[0].trim();
+    } else if (trimmed.startsWith("NoDisplay=")) {
+      if (trimmed.substring(10).toLowerCase().startsWith("true")) {
+        noDisplay = true;
+      }
     }
   }
 
   if (name && exec && !noDisplay) {
     // Sanitize Exec command (remove % field codes)
     // Common codes: %f, %F, %u, %U, %d, %D, %n, %N, %i, %c, %k, %v, %m
-    const cleanExec = exec.replace(/%[fFuUdDnNiCkfvVm]/g, "").trim();
+    // Also remove Flatpak markers: @@u %u @@ etc.
+    const cleanExec = exec
+      .replace(/%[fFuUdDnNiCkfvVm]/g, "")
+      .replace(/@@[uUnN]?\s*(%[fFuU])?\s*@@/g, "")
+      .trim();
 
     return {
       name,
@@ -139,6 +164,12 @@ function parseDesktopFile(content: string, path: string): AppInfo | null {
       icon,
       path,
     };
+  }
+
+  if (noDisplay) {
+    // console.log(`Skipping ${path}: NoDisplay=true`);
+  } else if (!name || !exec) {
+    console.log(`Skipping ${path}: Name="${name}", Exec="${exec}"`);
   }
 
   return null;
