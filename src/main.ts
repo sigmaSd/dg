@@ -5,26 +5,24 @@
  */
 
 import {
-  AdwApplicationWindow,
   Application,
   Box,
   Entry,
-  GTK_ORIENTATION_HORIZONTAL,
-  GTK_ORIENTATION_VERTICAL,
   HeaderBar,
   Image,
   Label,
   ListBox,
   ListBoxRow,
+  Orientation,
   ScrolledWindow,
-  SimpleAction,
   Spinner,
-  ToolbarView,
   Widget,
-} from "@sigmasd/gtk";
+} from "@sigmasd/gtk/gtk4";
+import { AdwApplicationWindow, ToolbarView } from "@sigmasd/gtk/adw";
 import { EventLoop } from "@sigmasd/gtk/eventloop";
 import type { SearchResult, Source } from "./plugins/interface.ts";
 import { PluginLoader } from "./loader.ts";
+import { SimpleAction } from "@sigmasd/gtk/gio";
 
 const APP_ID = "io.github.sigmasd.dg";
 const APP_FLAGS = 0;
@@ -117,10 +115,10 @@ class DGApp {
     const headerBar = new HeaderBar();
     toolbarView.addTopBar(headerBar);
 
-    const contentBox = new Box(GTK_ORIENTATION_VERTICAL, 0);
+    const contentBox = new Box(Orientation.VERTICAL, 0);
 
     // Search Entry
-    const searchBox = new Box(GTK_ORIENTATION_VERTICAL, 0);
+    const searchBox = new Box(Orientation.VERTICAL, 0);
     searchBox.setMarginTop(12);
     searchBox.setMarginBottom(12);
     searchBox.setMarginStart(12);
@@ -159,7 +157,7 @@ class DGApp {
     toolbarView.setContent(contentBox);
 
     // Status Bar (Bottom)
-    this.#bottomBox = new Box(GTK_ORIENTATION_HORIZONTAL, 12);
+    this.#bottomBox = new Box(Orientation.HORIZONTAL, 12);
     this.#bottomBox.setMarginTop(8);
     this.#bottomBox.setMarginBottom(8);
     this.#bottomBox.setMarginStart(12);
@@ -240,7 +238,7 @@ class DGApp {
     for (const result of results) {
       const row = new ListBoxRow();
 
-      const mainBox = new Box(GTK_ORIENTATION_HORIZONTAL, 12);
+      const mainBox = new Box(Orientation.HORIZONTAL, 12);
       mainBox.setMarginTop(8);
       mainBox.setMarginBottom(8);
       mainBox.setMarginStart(10);
@@ -256,7 +254,7 @@ class DGApp {
         mainBox.append(icon);
       }
 
-      const textBox = new Box(GTK_ORIENTATION_VERTICAL, 4);
+      const textBox = new Box(Orientation.VERTICAL, 4);
 
       const titleLabel = new Label(result.title);
       titleLabel.setProperty("xalign", 0);

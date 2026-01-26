@@ -1,4 +1,4 @@
-import { type AdwApplicationWindow, MessageDialog } from "@sigmasd/gtk";
+import { type AdwApplicationWindow, MessageDialog } from "@sigmasd/gtk/adw";
 import {
   PERMISSION_NAMES,
   type PluginPermissions,
