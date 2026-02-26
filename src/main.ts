@@ -205,7 +205,10 @@ class DGApp {
     const args = parts.slice(1).join(" ");
 
     // Check if a plugin matches the specific trigger
-    const triggeredPlugin = this.#plugins.find((p) => p.trigger === trigger);
+    // Only trigger if there is at least one space after the trigger
+    const triggeredPlugin = parts.length > 1
+      ? this.#plugins.find((p) => p.trigger === trigger)
+      : undefined;
 
     if (triggeredPlugin) {
       // Specific plugin search
