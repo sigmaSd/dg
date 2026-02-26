@@ -72,7 +72,7 @@ export const meta: PluginMetadata = {
   id: "my-plugin",
   name: "My Plugin",
   description: "Does something cool",
-  trigger: "cool", // Optional: Type 'cool <query>' to trigger
+  trigger: "cool", // Optional: Type 'cool <query>' to trigger (requires a space after)
 };
 
 export default class MyPlugin extends WorkerPlugin {
