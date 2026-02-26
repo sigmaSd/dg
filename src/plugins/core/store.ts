@@ -101,28 +101,27 @@ export class StoreSource implements Source {
     signal: AbortSignal,
   ): Promise<SearchResult[]> {
     try {
-      // If query is "all", search for all plugins
-      const searchTerm = query === "all"
-        ? "dg-plugin-"
-        : `dg-plugin-${encodeURIComponent(query)}`;
-
       const resp = await fetch(
-        `https://jsr.io/api/packages?query=${searchTerm}`,
+        `https://api.jsr.io/scopes/sigmasd/packages/dg/dependents`,
         { signal },
       );
       if (!resp.ok) return [];
 
       const data = await resp.json();
-      const items = (data.items || []) as Record<string, unknown>[];
+      const items = (data.items || []) as { scope: string; package: string }[];
 
-      const filtered = items.filter((item) =>
-        typeof item.name === "string" && item.name.startsWith("dg-plugin-")
-      );
+      // Filter by query if provided (not "all")
+      const filtered = items.filter((item) => {
+        const fullName = `@${item.scope}/${item.package}`;
+        if (query === "all") return true;
+        return fullName.toLowerCase().includes(query.toLowerCase()) ||
+          item.package.toLowerCase().includes(query.toLowerCase());
+      });
 
       if (filtered.length === 0) {
         return [{
           title: "No results found",
-          subtitle: "Only packages starting with 'dg-plugin-' are shown",
+          subtitle: "No packages depending on @sigmasd/dg match your search",
           score: 0,
           onActivate: () => {},
         }];
@@ -132,11 +131,14 @@ export class StoreSource implements Source {
       for (const item of filtered) {
         if (signal.aborted) break;
 
+        const scope = item.scope;
+        const name = item.package;
+
         // Fetch latest version from meta.json
         let latest = "latest";
         try {
           const metaResp = await fetch(
-            `https://jsr.io/@${item.scope}/${item.name}/meta.json`,
+            `https://jsr.io/@${scope}/${name}/meta.json`,
             { signal },
           );
           if (metaResp.ok) {
@@ -145,7 +147,7 @@ export class StoreSource implements Source {
           }
         } catch { /* fallback to @latest */ }
 
-        const fullUrl = `jsr:@${item.scope}/${item.name}`;
+        const fullUrl = `jsr:@${scope}/${name}`;
         const pinnedUrl = `${fullUrl}@${latest}`;
 
         // Check if ANY version of this plugin is installed
@@ -155,7 +157,7 @@ export class StoreSource implements Source {
         const isInstalled = !!installedVersion;
         const isLatest = installedVersion === pinnedUrl;
 
-        let subtitle = (item.description as string) || "No description";
+        let subtitle = "No description";
         if (isInstalled) {
           subtitle = isLatest
             ? `[INSTALLED v${latest}] ${subtitle}`
@@ -165,7 +167,7 @@ export class StoreSource implements Source {
         }
 
         results.push({
-          title: `@${item.scope}/${item.name}`,
+          title: `@${scope}/${name}`,
           subtitle,
           icon: "system-software-install",
           score: 10,

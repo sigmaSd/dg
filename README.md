@@ -60,7 +60,8 @@ run in a separate worker thread and can be easily shared by publishing a package
 to [JSR](https://jsr.io).
 
 To make your plugin discoverable in the built-in store, ensure your JSR package
-name starts with the `dg-plugin-` prefix (e.g., `@my-scope/dg-plugin-weather`).
+lists `@sigmasd/dg` as a dependency in your `deno.json`. The store uses the JSR
+Dependents API to find all compatible plugins.
 
 Example structure:
 
