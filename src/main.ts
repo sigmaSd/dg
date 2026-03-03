@@ -50,7 +50,7 @@ class DGApp {
     this.#app.onActivate(() => {
       if (!this.#win) {
         this.#buildUI();
-        this.#initPlugins();
+        void this.#initPlugins();
         this.#setupActions();
       }
       this.#win?.present();
@@ -67,7 +67,7 @@ class DGApp {
     this.#setLoading(false);
     // Use the current text in the entry if the user already started typing
     const currentQuery = this.#searchEntry?.getText() || "";
-    this.#updateSearch(currentQuery);
+    void this.#updateSearch(currentQuery);
   }
 
   #setLoading(loading: boolean, message?: string) {
@@ -135,8 +135,12 @@ class DGApp {
       "placeholder-text",
       "Type to search apps, or 'b' for browser...",
     );
-    this.#searchEntry.onChanged(() => this.#onSearchChanged());
-    this.#searchEntry.onActivate(() => this.#activateResult(0));
+    this.#searchEntry.onChanged(() => {
+      void this.#onSearchChanged();
+    });
+    this.#searchEntry.onActivate(() => {
+      void this.#activateResult(0);
+    });
 
     searchBox.append(this.#searchEntry);
     contentBox.append(searchBox);
@@ -154,9 +158,8 @@ class DGApp {
     this.#listBox.setMarginEnd(12);
 
     this.#listBox.onRowActivated((_row, index) => {
-      this.#activateResult(index);
+      void this.#activateResult(index);
     });
-
     scrolled.setChild(this.#listBox);
     contentBox.append(scrolled);
 

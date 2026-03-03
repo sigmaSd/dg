@@ -33,6 +33,7 @@ export class CalculatorSource implements Source {
       }
 
       // Use Function constructor as a safer eval
+      // eslint-disable-next-line @typescript-eslint/no-implied-eval
       const result = new Function(`return ${clean}`)();
 
       if (typeof result !== "number" || isNaN(result) || !isFinite(result)) {

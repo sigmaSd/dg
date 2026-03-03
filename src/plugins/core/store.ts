@@ -15,7 +15,6 @@ export class StoreSource implements Source {
   #debounceTimer: number | null = null;
   #abortController: AbortController | null = null;
   #lastResults: SearchResult[] = [];
-  #isSearching = false;
   #window?: AdwApplicationWindow;
 
   constructor(window?: AdwApplicationWindow) {
@@ -31,7 +30,6 @@ export class StoreSource implements Source {
     if (!query) {
       if (this.#debounceTimer) clearTimeout(this.#debounceTimer);
       if (this.#abortController) this.#abortController.abort();
-      this.#isSearching = false;
 
       const config = await this.#configManager.read();
       this.#installedPlugins = config.plugins.map((p) => p.url);
@@ -80,18 +78,17 @@ export class StoreSource implements Source {
     if (this.#debounceTimer) clearTimeout(this.#debounceTimer);
     if (this.#abortController) this.#abortController.abort();
 
-    this.#isSearching = true;
-
     return new Promise((resolve) => {
-      this.#debounceTimer = setTimeout(async () => {
-        this.#abortController = new AbortController();
-        const results = await this.#performSearch(
-          query,
-          this.#abortController.signal,
-        );
-        this.#lastResults = results;
-        this.#isSearching = false;
-        resolve(results);
+      this.#debounceTimer = setTimeout(() => {
+        void (async () => {
+          this.#abortController = new AbortController();
+          const results = await this.#performSearch(
+            query,
+            this.#abortController.signal,
+          );
+          this.#lastResults = results;
+          resolve(results);
+        })();
       }, 500);
     });
   }

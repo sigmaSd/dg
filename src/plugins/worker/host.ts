@@ -111,7 +111,7 @@ export class WorkerSource implements Source {
         clearTimeout(timeout);
         worker.terminate();
         URL.revokeObjectURL(url);
-        reject(e);
+        reject(new Error(`Worker error: ${e.message}`));
       };
     });
   }
