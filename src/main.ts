@@ -54,9 +54,9 @@ class DGApp {
         this.#setupActions();
       }
       this.#win?.present();
-      // Clear search and focus when re-opening
-      this.#searchEntry?.setText("");
+      // Focus the entry and select the text
       this.#searchEntry?.grabFocus();
+      this.#searchEntry?.selectRegion(0, -1);
     });
   }
 
