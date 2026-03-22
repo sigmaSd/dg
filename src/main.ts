@@ -263,6 +263,7 @@ class DGApp {
 
     if (triggeredPlugin) {
       // Specific plugin search - fire async
+      this.#setLoading(true, `Searching ${triggeredPlugin.id}...`);
       triggeredPlugin.search(args).then((r) => {
         handleResults(r);
         handleDone();
