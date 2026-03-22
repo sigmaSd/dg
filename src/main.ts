@@ -26,6 +26,11 @@ import { SimpleAction } from "@sigmasd/gtk/gio";
 
 const APP_ID = "io.github.sigmasd.dg";
 const APP_FLAGS = 0;
+const DEBUG = Deno.env.get("DEBUG") === "1";
+
+function debug(...args: unknown[]) {
+  if (DEBUG) console.log(...args);
+}
 
 class DGApp {
   #app: Application;
@@ -146,7 +151,7 @@ class DGApp {
       "Type to search apps, or 'b' for browser...",
     );
     this.#searchEntry.onChanged(() => {
-      void this.#onSearchChanged();
+      this.#onSearchChanged();
     });
     this.#searchEntry.onActivate(() => {
       void this.#activateResult(0);
@@ -201,15 +206,16 @@ class DGApp {
     this.#win.present();
   }
 
-  async #onSearchChanged() {
+  #onSearchChanged() {
     if (!this.#searchEntry) return;
     const query = this.#searchEntry.getText();
-    await this.#updateSearch(query);
+    this.#updateSearch(query);
   }
 
-  async #updateSearch(query: string) {
+  #updateSearch(query: string) {
     const searchId = ++this.#latestSearchId;
-    this.#setLoading(true, "Searching...");
+    const t0 = DEBUG ? performance.now() : 0;
+    this.#setLoading(false);
 
     let results: SearchResult[] = [];
 
@@ -223,37 +229,64 @@ class DGApp {
       ? this.#plugins.find((p) => p.trigger === trigger)
       : undefined;
 
-    if (triggeredPlugin) {
-      // Specific plugin search
-      results = await triggeredPlugin.search(args);
-    } else {
-      // Global search (plugins with no trigger)
-      const globalPlugins = this.#plugins.filter((p) => !p.trigger);
-      for (const plugin of globalPlugins) {
-        const pluginResults = await plugin.search(query);
-        results = results.concat(pluginResults);
+    const handleResults = (newResults: SearchResult[]) => {
+      if (searchId !== this.#latestSearchId) return;
+      results = results.concat(newResults);
+      const sorted = [...results].sort((a, b) => b.score - a.score).slice(
+        0,
+        20,
+      );
+      this.#currentResults = sorted;
+      const t1 = DEBUG ? performance.now() : 0;
+      this.#renderList(sorted);
+      if (DEBUG) {
+        debug(
+          `[Search] total: ${
+            (t1 - t0).toFixed(1)
+          }ms, results: ${sorted.length}`,
+        );
       }
-    }
+    };
 
-    // Only update if this is the latest search
-    if (searchId === this.#latestSearchId) {
+    const handleDone = () => {
+      if (searchId === this.#latestSearchId) {
+        this.#setLoading(false);
+      }
+    };
+
+    if (triggeredPlugin) {
+      // Specific plugin search - fire async
+      triggeredPlugin.search(args).then((r) => {
+        handleResults(r);
+        handleDone();
+      });
+    } else {
+      // Global search - fire all at once, no blocking
+      const globalPlugins = this.#plugins.filter((p) => !p.trigger);
+      let pending = globalPlugins.length;
+
+      for (const plugin of globalPlugins) {
+        plugin.search(query).then((pluginResults) => {
+          handleResults(pluginResults);
+          pending--;
+          if (pending === 0) handleDone();
+        });
+      }
+      // Hide loading immediately - results will come async
       this.#setLoading(false);
-      results.sort((a, b) => b.score - a.score);
-      this.#currentResults = results;
-      this.#renderList(results);
     }
   }
 
   #renderList(results: SearchResult[]) {
     if (!this.#listBox) return;
 
+    const t0 = DEBUG ? performance.now() : 0;
+
     let child = this.#listBox.getFirstChild();
     while (child) {
       const next = this.#listBox.getNextSibling(child);
       const w = new Widget(child);
       this.#listBox.remove(w);
-      // Note: GTK automatically unrefs when removing from container
-      // Manual unref() here causes double-free and segfaults
       child = next;
     }
 
@@ -298,6 +331,13 @@ class DGApp {
       mainBox.append(textBox);
       row.setChild(mainBox);
       this.#listBox.append(row);
+    }
+    if (DEBUG) {
+      debug(
+        `[Render] ${results.length} rows: ${
+          (performance.now() - t0).toFixed(1)
+        }ms`,
+      );
     }
   }
 
