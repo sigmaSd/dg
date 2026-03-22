@@ -14,8 +14,16 @@ export class ConfigManager {
   #configPath: string;
 
   constructor() {
-    const home = Deno.env.get("HOME") || ".";
-    this.#configPath = join(home, ".config", "dg", "plugins.json");
+    let baseDir: string;
+
+    if (Deno.build.os === "windows") {
+      baseDir = Deno.env.get("APPDATA") || Deno.env.get("HOME") || ".";
+    } else {
+      baseDir = Deno.env.get("XDG_CONFIG_HOME") ||
+        join(Deno.env.get("HOME") || ".", ".config");
+    }
+
+    this.#configPath = join(baseDir, "dg", "plugins.json");
   }
 
   async ensureConfigDir() {

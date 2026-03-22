@@ -34,3 +34,7 @@ jobs:
       - name: Run type check
         if: runner.os == 'Linux'
         run: deno check
+
+      - name: Run tests
+        if: runner.os == 'Linux'
+        run: deno test
