@@ -285,8 +285,7 @@ class DGApp {
     let child = this.#listBox.getFirstChild();
     while (child) {
       const next = this.#listBox.getNextSibling(child);
-      const w = new Widget(child);
-      this.#listBox.remove(w);
+      this.#listBox.remove(child);
       child = next;
     }
 
