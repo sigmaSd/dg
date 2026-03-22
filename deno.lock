@@ -1,19 +1,19 @@
 {
   "version": "5",
   "specifiers": {
-    "jsr:@sigma/deno-compat@0.22.0": "0.22.0",
+    "jsr:@sigma/deno-compat@0.23.0": "0.23.0",
     "jsr:@sigmasd/dg-plugin-emoji@0.4.0": "0.4.0",
     "jsr:@sigmasd/dg-plugin-prompts@0.1.1": "0.1.1",
     "jsr:@sigmasd/dg-plugin-scripts@0.2.0": "0.2.0",
-    "jsr:@sigmasd/gtk@0.50.0": "0.50.0",
+    "jsr:@sigmasd/gtk@0.56.0": "0.56.0",
     "jsr:@std/assert@^1.0.19": "1.0.19",
     "jsr:@std/internal@^1.0.12": "1.0.12",
     "jsr:@std/path@^1.1.4": "1.1.4",
     "npm:emojilib@^4.0.2": "4.0.2"
   },
   "jsr": {
-    "@sigma/deno-compat@0.22.0": {
-      "integrity": "a7e38065b8cf8918b0c2d7c6bce8ffe29086055fd67b4bed52b60c8a127391bd"
+    "@sigma/deno-compat@0.23.0": {
+      "integrity": "3e116e19096601c3e078311864b653a207592195ae6a3f634a45931eb1a21481"
     },
     "@sigmasd/dg-plugin-emoji@0.4.0": {
       "integrity": "e573f70c78197f849e82626610ac552157d91e9a787cd8320e8391de05331d3f",
@@ -33,8 +33,8 @@
         "jsr:@std/path"
       ]
     },
-    "@sigmasd/gtk@0.50.0": {
-      "integrity": "c40df75493983cfaee024ce518bb1a5c2809f33fc542bb09a76b5b105eab1675",
+    "@sigmasd/gtk@0.56.0": {
+      "integrity": "b55719c7eccbae6213f4c52fb4e276b528e8b5a38c3b32806eb2a5f373bf9576",
       "dependencies": [
         "jsr:@sigma/deno-compat"
       ]
@@ -62,7 +62,7 @@
   },
   "workspace": {
     "dependencies": [
-      "jsr:@sigmasd/gtk@0.50.0",
+      "jsr:@sigmasd/gtk@0.56.0",
       "jsr:@std/assert@^1.0.19",
       "jsr:@std/path@^1.1.4"
     ]
