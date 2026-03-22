@@ -344,8 +344,17 @@ class DGApp {
   async #activateResult(index: number) {
     if (index >= 0 && index < this.#currentResults.length) {
       const result = this.#currentResults[index];
-      await result.onActivate();
-      this.#win?.setVisible(false);
+      try {
+        await result.onActivate();
+        this.#win?.setVisible(false);
+      } catch (e) {
+        console.error("Activation failed:", e);
+        this.#setLoading(
+          true,
+          `Error: ${e instanceof Error ? e.message : String(e)}`,
+        );
+        setTimeout(() => this.#setLoading(false), 3000);
+      }
     }
   }
 

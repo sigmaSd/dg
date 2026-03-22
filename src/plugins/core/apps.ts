@@ -1,6 +1,35 @@
 import { type AppInfo, getApps } from "../../apps.ts";
 import type { SearchResult, Source } from "../interface.ts";
 
+function splitExec(exec: string): string[] {
+  const args: string[] = [];
+  let current = "";
+  let inQuote = false;
+  let quoteChar = "";
+
+  for (let i = 0; i < exec.length; i++) {
+    const char = exec[i];
+
+    if (!inQuote && (char === '"' || char === "'")) {
+      inQuote = true;
+      quoteChar = char;
+    } else if (inQuote && char === quoteChar) {
+      inQuote = false;
+      quoteChar = "";
+    } else if (!inQuote && char === " ") {
+      if (current) {
+        args.push(current);
+        current = "";
+      }
+    } else {
+      current += char;
+    }
+  }
+
+  if (current) args.push(current);
+  return args;
+}
+
 export class AppSource implements Source {
   id = "apps";
   name = "Applications";
@@ -29,10 +58,11 @@ export class AppSource implements Source {
       score: app.name.toLowerCase().startsWith(q) ? 100 : 50,
       onActivate: () => {
         console.log(`Launching: ${app.name}`);
-        // Handle exec with arguments
-        const [cmd, ...args] = app.exec.split(" ");
+        const args = splitExec(app.exec);
+        const cmd = args[0];
+        const rest = args.slice(1);
         const command = new Deno.Command(cmd, {
-          args,
+          args: rest,
           stdin: "null",
           stdout: "null",
           stderr: "null",
