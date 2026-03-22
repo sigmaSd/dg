@@ -46,6 +46,7 @@ class DGApp {
   #plugins: Source[] = [];
   #currentResults: SearchResult[] = [];
   #latestSearchId = 0;
+  #debounceTimer: number | null = null;
 
   constructor() {
     this.#app = new Application(APP_ID, APP_FLAGS);
@@ -151,7 +152,13 @@ class DGApp {
       "Type to search apps, or 'b' for browser...",
     );
     this.#searchEntry.onChanged(() => {
-      this.#onSearchChanged();
+      if (this.#debounceTimer !== null) {
+        clearTimeout(this.#debounceTimer);
+      }
+      this.#debounceTimer = setTimeout(() => {
+        this.#debounceTimer = null;
+        this.#onSearchChanged();
+      }, 150);
     });
     this.#searchEntry.onActivate(() => {
       void this.#activateResult(0);
