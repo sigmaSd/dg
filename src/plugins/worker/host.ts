@@ -35,6 +35,7 @@ export class WorkerSource implements Source {
   #pendingActivations = new Map<string, () => void>();
   #searchIdCounter = 0;
   #window?: AdwApplicationWindow;
+  #blobUrl?: string;
 
   /**
    * Creates a new WorkerSource.
@@ -134,9 +135,9 @@ export class WorkerSource implements Source {
     `;
 
     const blob = new Blob([code], { type: "application/typescript" });
-    const url = URL.createObjectURL(blob);
+    this.#blobUrl = URL.createObjectURL(blob);
 
-    this.#worker = new Worker(url, {
+    this.#worker = new Worker(this.#blobUrl, {
       type: "module",
       deno: {
         permissions: this.#permissions as Deno.PermissionOptions,
@@ -227,5 +228,17 @@ export class WorkerSource implements Source {
         }
       }, 5000);
     });
+  }
+
+  // deno-lint-ignore require-await
+  async destroy(): Promise<void> {
+    if (this.#worker) {
+      this.#worker.terminate();
+      this.#worker = undefined;
+    }
+    if (this.#blobUrl) {
+      URL.revokeObjectURL(this.#blobUrl);
+      this.#blobUrl = undefined;
+    }
   }
 }

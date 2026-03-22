@@ -138,10 +138,10 @@ export class FirefoxSource implements Source {
     }));
   }
 
-  cleanup() {
+  async destroy(): Promise<void> {
     if (this.#tmpPath) {
       try {
-        Deno.removeSync(this.#tmpPath);
+        await Deno.remove(this.#tmpPath);
       } catch {
         // Ignore
       }

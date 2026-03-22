@@ -3,6 +3,8 @@
   "specifiers": {
     "jsr:@sigma/deno-compat@0.22.0": "0.22.0",
     "jsr:@sigmasd/dg-plugin-emoji@0.4.0": "0.4.0",
+    "jsr:@sigmasd/dg-plugin-prompts@0.1.1": "0.1.1",
+    "jsr:@sigmasd/dg-plugin-scripts@0.2.0": "0.2.0",
     "jsr:@sigmasd/gtk@0.50.0": "0.50.0",
     "jsr:@std/assert@^1.0.19": "1.0.19",
     "jsr:@std/internal@^1.0.12": "1.0.12",
@@ -17,6 +19,18 @@
       "integrity": "e573f70c78197f849e82626610ac552157d91e9a787cd8320e8391de05331d3f",
       "dependencies": [
         "npm:emojilib"
+      ]
+    },
+    "@sigmasd/dg-plugin-prompts@0.1.1": {
+      "integrity": "a5503b433d378c2a9504423566078734002fd18cd60a0221b84eaaaa536fc4b1",
+      "dependencies": [
+        "jsr:@std/path"
+      ]
+    },
+    "@sigmasd/dg-plugin-scripts@0.2.0": {
+      "integrity": "9d4366a337b6eb3373053009046cb4494a9caca960fa73e7e8fb1c565e52c448",
+      "dependencies": [
+        "jsr:@std/path"
       ]
     },
     "@sigmasd/gtk@0.50.0": {

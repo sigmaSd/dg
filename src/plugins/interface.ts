@@ -94,6 +94,10 @@ export interface Source {
    * @param query The search string entered by the user
    */
   search(query: string): Promise<SearchResult[]>;
+  /**
+   * Cleanup resources when the application shuts down.
+   */
+  destroy?(): Promise<void>;
 }
 
 // --- RPC Protocol Types ---

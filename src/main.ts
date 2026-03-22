@@ -88,8 +88,18 @@ class DGApp {
 
     // Quit Action (Ctrl+Q)
     const quitAction = new SimpleAction("quit");
-    quitAction.connect("activate", () => {
+    quitAction.connect("activate", async () => {
       console.log("Quit action activated");
+
+      // Cleanup all plugins
+      for (const plugin of this.#plugins) {
+        try {
+          await plugin.destroy?.();
+        } catch (e) {
+          console.error(`Error cleaning up plugin ${plugin.id}:`, e);
+        }
+      }
+
       if (this.#win) {
         this.#win.destroy();
         this.#win = undefined;
