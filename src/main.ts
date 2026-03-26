@@ -16,7 +16,6 @@ import {
   Orientation,
   ScrolledWindow,
   Spinner,
-  type Widget,
 } from "@sigmasd/gtk/gtk4";
 import { AdwApplicationWindow, ToolbarView } from "@sigmasd/gtk/adw";
 import { EventLoop } from "@sigmasd/gtk/eventloop";
@@ -294,7 +293,6 @@ class DGApp {
     while (child) {
       const next = this.#listBox.getNextSibling(child);
       this.#listBox.remove(child);
-      this.#destroyWidgetTree(child);
       child = next;
     }
 
@@ -347,23 +345,6 @@ class DGApp {
         }ms`,
       );
     }
-  }
-
-  #destroyWidgetTree(widget: Widget): void {
-    if (!widget.ptr) return;
-
-    const children: Widget[] = [];
-    let child = widget.getFirstChild();
-    while (child) {
-      children.push(child);
-      child = widget.getNextSibling(child);
-    }
-
-    for (const c of children) {
-      this.#destroyWidgetTree(c);
-    }
-
-    widget.unref();
   }
 
   async #activateResult(index: number) {

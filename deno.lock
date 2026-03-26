@@ -5,7 +5,7 @@
     "jsr:@sigmasd/dg-plugin-emoji@0.4.0": "0.4.0",
     "jsr:@sigmasd/dg-plugin-prompts@0.1.1": "0.1.1",
     "jsr:@sigmasd/dg-plugin-scripts@0.2.0": "0.2.0",
-    "jsr:@sigmasd/gtk@0.56.0": "0.56.0",
+    "jsr:@sigmasd/gtk@0.57.0": "0.57.0",
     "jsr:@std/assert@^1.0.19": "1.0.19",
     "jsr:@std/internal@^1.0.12": "1.0.12",
     "jsr:@std/path@^1.1.4": "1.1.4",
@@ -33,8 +33,8 @@
         "jsr:@std/path"
       ]
     },
-    "@sigmasd/gtk@0.56.0": {
-      "integrity": "b55719c7eccbae6213f4c52fb4e276b528e8b5a38c3b32806eb2a5f373bf9576",
+    "@sigmasd/gtk@0.57.0": {
+      "integrity": "29a358bdc9a4764f0b9d73f2d16c2ad3f2fe258692c4ebbc97a606e93f02b4ba",
       "dependencies": [
         "jsr:@sigma/deno-compat"
       ]
@@ -62,7 +62,7 @@
   },
   "workspace": {
     "dependencies": [
-      "jsr:@sigmasd/gtk@0.56.0",
+      "jsr:@sigmasd/gtk@0.57.0",
       "jsr:@std/assert@^1.0.19",
       "jsr:@std/path@^1.1.4"
     ]
