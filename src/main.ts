@@ -194,20 +194,17 @@ class DGApp {
         const query = this.#searchEntry?.getText() || "";
         console.log("[Main] AI follow-up, query:", query);
         if (query.trim()) {
-          void this.#enterAiMode(query, false);
+          void this.#enterAiMode(query);
           this.#searchEntry?.setText("");
         }
       } else {
         // Check if it's an AI trigger
         const query = this.#searchEntry?.getText() || "";
         console.log("[Main] Enter pressed, query:", query);
-        if (query.startsWith("ai:cb ") && this.#aiSource) {
-          console.log("[Main] Triggering AI with clipboard");
-          void this.#enterAiMode(query.slice(6).trim(), true);
-          this.#searchEntry?.setText("");
-        } else if (query.startsWith("ai ") && this.#aiSource) {
-          console.log("[Main] Triggering AI without clipboard");
-          void this.#enterAiMode(query.slice(3).trim(), false);
+        if (query.startsWith("ai ") && this.#aiSource) {
+          console.log("[Main] Triggering AI");
+          const processedQuery = query.slice(3).trim();
+          void this.#enterAiMode(processedQuery);
           this.#searchEntry?.setText("");
         } else {
           void this.#activateResult(0);
@@ -281,18 +278,17 @@ class DGApp {
     }
   }
 
-  async #enterAiMode(query: string, includeClipboard: boolean = false) {
-    console.log(
-      "[Main] #enterAiMode called, query:",
-      query,
-      "includeClipboard:",
-      includeClipboard,
-    );
+  async #enterAiMode(query: string) {
+    console.log("[Main] #enterAiMode called, query:", query);
 
     if (!this.#aiSource || !query.trim()) {
       console.log("[Main] Early return - no source or empty query");
       return;
     }
+
+    // Replace variables like $cb/$clipboard with actual content
+    const resolvedQuery = await this.#resolveVariables(query);
+    console.log("[Main] Resolved query:", resolvedQuery);
 
     // Abort any previous request
     if (this.#aiAbortController) {
@@ -360,8 +356,7 @@ class DGApp {
     console.log("[Main] Calling streamResponse...");
     try {
       for await (
-        const _ of this.#aiSource.streamResponse(query, {
-          includeClipboard,
+        const _ of this.#aiSource.streamResponse(resolvedQuery, {
           callbacks,
           signal: this.#aiAbortController.signal,
         })
@@ -432,19 +427,19 @@ class DGApp {
     const args = parts.slice(1).join(" ");
 
     // Check for AI trigger - only activate on Enter, just show placeholder here
-    if (trigger === "ai" || trigger === "ai:cb") {
+    if (trigger === "ai") {
       const providerName = this.#aiSource?.getProvider() === "opencode"
         ? "OpenCode"
         : "OpenRouter";
-      const hasClipboard = trigger === "ai:cb";
+      const hasClipboard = args.includes("$clipboard") || args.includes("$cb");
 
       if (parts.length === 1) {
-        // Just "ai" or "ai:cb" - show help
+        // Just "ai" or "$clipboard" - show help
         results = [{
           title: `AI (${providerName})`,
           subtitle: hasClipboard
             ? "Press Enter with clipboard context"
-            : "Press Enter to ask a question",
+            : "Type a question and press Enter",
           icon: "dialog-information",
           score: 100,
           onActivate: () => {},
@@ -670,6 +665,49 @@ class DGApp {
     });
 
     dialog.present();
+  }
+
+  async #resolveVariables(query: string): Promise<string> {
+    let result = query;
+
+    // Replace $cb and $clipboard with clipboard content
+    if (result.includes("$cb") || result.includes("$clipboard")) {
+      try {
+        const clipboardText = await this.#readClipboard();
+        if (clipboardText && clipboardText.trim()) {
+          result = result.replace(/\$clipboard/gi, clipboardText.trim());
+          result = result.replace(/\$cb/gi, clipboardText.trim());
+        }
+      } catch (e) {
+        console.warn("[Main] Failed to read clipboard:", e);
+      }
+    }
+
+    return result;
+  }
+
+  async #readClipboard(): Promise<string> {
+    try {
+      if (Deno.build.os === "linux") {
+        const cmd = new Deno.Command("wl-paste", {
+          stdout: "piped",
+          stderr: "piped",
+        });
+        const { stdout } = await cmd.output();
+        return new TextDecoder().decode(stdout);
+      } else if (Deno.build.os === "windows") {
+        const cmd = new Deno.Command("powershell", {
+          args: ["-Command", "Get-Clipboard"],
+          stdout: "piped",
+          stderr: "piped",
+        });
+        const { stdout } = await cmd.output();
+        return new TextDecoder().decode(stdout);
+      }
+    } catch {
+      console.warn("[Main] Failed to read clipboard");
+    }
+    return "";
   }
 }
 
