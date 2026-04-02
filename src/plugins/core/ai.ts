@@ -137,9 +137,11 @@ export class AiSource implements Source {
         timeout: 30000,
         port: 0,
         signal: this.#abortController.signal,
+        config: { permission: { external_directory: "allow" } },
       });
       this.#opencodeInstance = opencode;
       this.#opencodeClient = opencode.client;
+      this.#createdOwnServer = true;
 
       // Extract port from URL like http://127.0.0.1:4096
       const url = opencode.server.url;
@@ -334,13 +336,9 @@ export class AiSource implements Source {
       let sessionId = this.#sessionId;
       if (!sessionId) {
         console.log("[AI/OpenCode] Creating new session...");
-        // deno-lint-ignore no-explicit-any
-        const session = await (client.session.create as any)({
+        const session = await client.session.create({
           body: {
             title: "DG AI Query",
-            permission: [
-              { permission: "bash", pattern: "*", action: "allow" },
-            ],
           },
         });
         sessionId = session.data?.id;
@@ -360,13 +358,13 @@ export class AiSource implements Source {
         path: { id: sessionId },
         body: {
           tools: {
-            // TODO: implement these
-            read: false,
-            edit: false,
-            write: false,
-            grep: false,
-            glob: false,
-            task: false,
+            bash: true,
+            read: true,
+            edit: true,
+            write: true,
+            grep: true,
+            glob: true,
+            task: true,
           },
           parts: [{ type: "text", text: fullMessage }],
         },
@@ -381,14 +379,15 @@ export class AiSource implements Source {
       let lastMessageId = "";
 
       for await (const event of events.stream) {
-        if (signal?.aborted) {
-          break;
-        }
-
         const eventProps = event.properties as Record<string, unknown>;
         const eventSessionId = eventProps.sessionID as string | undefined;
+
         if (eventSessionId !== sessionId) {
           continue;
+        }
+
+        if (signal?.aborted) {
+          break;
         }
 
         const eventType = event.type as string;
@@ -398,19 +397,31 @@ export class AiSource implements Source {
           done = true;
         }
 
+        if (eventType === "permission.asked") {
+          console.log(
+            "[AI/OpenCode] Permission asked:",
+            (eventProps as { permission?: string }).permission,
+          );
+        }
+
+        if (eventType === "permission.replied") {
+          console.log(
+            "[AI/OpenCode] Permission replied:",
+            JSON.stringify(eventProps).slice(0, 100),
+          );
+        }
+
         if (eventType === "message.part.delta") {
           const deltaProps = eventProps as {
             delta?: string;
             messageID?: string;
             partID?: string;
-            field?: string;
           };
           if (deltaProps.delta) {
             lastMessageId = deltaProps.messageID || "";
 
             const partType = partIdToType.get(deltaProps.partID || "");
 
-            // Only show text, not reasoning
             if (partType === "text" || !partType) {
               callbacks.onText(deltaProps.delta);
               yield deltaProps.delta;
@@ -445,40 +456,38 @@ export class AiSource implements Source {
           }
 
           if (part?.type === "tool" && part.state) {
-            if (
-              (part.state.status === "pending" ||
-                part.state.status === "running") &&
-              part.callID && !handledToolCalls.has(part.callID)
-            ) {
-              handledToolCalls.add(part.callID);
-              const toolName = part.tool || "unknown";
-              const toolInput = part.state.input || {};
-              const command = (toolInput.command as string) || "";
+            if (part.callID && !handledToolCalls.has(part.callID)) {
+              if (
+                part.state.input && Object.keys(part.state.input).length > 0
+              ) {
+                handledToolCalls.add(part.callID);
+                const toolName = part.tool || "unknown";
+                const toolInput = part.state.input || {};
+                const command = (toolInput.command as string) || "";
 
-              console.log("[AI/OpenCode] Tool executing:", command);
-              callbacks.onToolRequest(toolName, toolInput);
-              callbacks.onToolResult(`Running: ${command}`);
+                if (command) {
+                  callbacks.onToolRequest(toolName, toolInput);
+                  callbacks.onToolResult(`Running: ${command}`);
+                }
+              }
             }
 
             if (part.state.status === "completed") {
               const output = part.state.output || "";
-              console.log(
-                "[AI/OpenCode] Tool completed:",
-                output.slice(0, 100),
-              );
               callbacks.onToolResult(`Output: ${output.slice(0, 200)}`);
             }
 
             if (part.state.status === "error") {
               const error = part.state.error || "Unknown error";
-              console.log("[AI/OpenCode] Tool error:", error);
               callbacks.onToolResult(`Error: ${error}`);
             }
           }
 
           if (part?.type === "step-finish") {
-            console.log("[AI/OpenCode] Step finished, reason:", part.reason);
-            if (part.reason === "stop" || part.reason === "length") {
+            if (
+              part.reason === "stop" || part.reason === "length" ||
+              part.reason === "tool-calls"
+            ) {
               done = true;
             }
           }
@@ -499,16 +508,13 @@ export class AiSource implements Source {
             lastMessageId = info.id || lastMessageId;
 
             if (
-              info.finish === "stop" ||
-              info.finish === "length" ||
-              info.time?.completed
+              info.finish === "stop" || info.finish === "length" ||
+              info.finish === "tool-calls" || info.time?.completed
             ) {
-              console.log("[AI/OpenCode] Message completed:", info.finish);
               done = true;
             }
 
             if (info.error) {
-              console.log("[AI/OpenCode] Message error:", info.error);
               callbacks.onError(String(info.error));
               done = true;
             }
@@ -527,7 +533,6 @@ export class AiSource implements Source {
         // Ignore errors during cleanup
       }
 
-      console.log("[AI/OpenCode] Done");
       callbacks.onDone();
     } catch (e) {
       if (e instanceof Error && e.name === "AbortError") {

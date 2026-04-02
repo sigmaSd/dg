@@ -341,12 +341,7 @@ class DGApp {
       },
       onToolRequest: (tool: string, args: Record<string, unknown>) => {
         console.log("[Main] onToolRequest:", tool, args);
-
-        // With "allow" permission, tools execute immediately - show info notification
-        const command = args.command as string || "";
-        if (command) {
-          this.#showToolInfoNotification(command);
-        }
+        // Silently handle - don't show popup
       },
       onToolResult: (result: string) => {
         console.log("[Main] onToolResult:", result.slice(0, 50));
