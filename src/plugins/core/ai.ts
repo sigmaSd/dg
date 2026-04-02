@@ -348,164 +348,142 @@ export class AiSource implements Source {
         },
       });
 
-      console.log("[AI/OpenCode] Async message sent, polling for response...");
+      console.log("[AI/OpenCode] Async message sent, listening for events...");
 
-      // Poll for messages
+      const events = await client.event.subscribe();
+      const handledToolCalls = new Set<string>();
       let done = false;
       let lastMessageId = "";
-      const handledToolCalls = new Set<string>();
 
-      while (!done && !signal?.aborted) {
-        await new Promise((r) => setTimeout(r, 500));
+      for await (const event of events.stream) {
+        if (signal?.aborted) {
+          break;
+        }
 
-        // Get messages
-        const messagesResp = await client.session.messages({
-          path: { id: sessionId },
-          query: { limit: 50 },
-        });
-
-        const messages = messagesResp.data || [];
-
-        if (messages.length === 0) {
-          console.log("[AI/OpenCode] No messages yet, continuing poll...");
+        const eventProps = event.properties as Record<string, unknown>;
+        const eventSessionId = eventProps.sessionID as string | undefined;
+        if (eventSessionId !== sessionId) {
           continue;
         }
 
-        // Find the latest ASSISTANT message
-        let latestWrapper = null;
-        for (let i = messages.length - 1; i >= 0; i--) {
-          if (messages[i]?.info?.role === "assistant") {
-            latestWrapper = messages[i];
-            break;
-          }
-        }
+        const eventType = event.type as string;
 
-        if (!latestWrapper) {
-          latestWrapper = messages[messages.length - 1];
-        }
-
-        if (!latestWrapper?.info) {
-          console.log("[AI/OpenCode] No valid message wrapper, continuing...");
-          continue;
-        }
-
-        const latestMsg = latestWrapper.info;
-        const msgId = latestMsg.id;
-        const isUserMsg = latestMsg.role === "user";
-
-        // AssistantMessage has error and time.completed, UserMessage doesn't
-        const assistantMsg = latestMsg as {
-          error?: unknown;
-          time?: { completed?: number };
-        };
-        const hasError = !!assistantMsg.error;
-        const isComplete = !!assistantMsg.time?.completed;
-
-        console.log(
-          "[AI/OpenCode] Message:",
-          msgId,
-          "role:",
-          latestMsg.role,
-          "completed:",
-          isComplete,
-          "error:",
-          hasError,
-        );
-
-        // Get parts with separate call
-        const msgResp = await client.session.message({
-          path: { id: sessionId, messageID: msgId },
-        });
-
-        const parts = msgResp.data?.parts || [];
-
-        console.log(
-          "[AI/OpenCode] Got",
-          parts.length,
-          "parts for message",
-          msgId,
-        );
-
-        if (msgId === lastMessageId && (isComplete || hasError || isUserMsg)) {
-          console.log("[AI/OpenCode] Message complete, done");
+        if (eventType === "session.idle") {
+          console.log("[AI/OpenCode] Session idle, done");
           done = true;
         }
 
-        if (isUserMsg) {
-          console.log(
-            "[AI/OpenCode] User message, waiting for assistant response...",
-          );
-          lastMessageId = msgId;
-          continue;
+        if (eventType === "message.part.delta") {
+          const deltaProps = eventProps as {
+            delta?: string;
+            messageID?: string;
+            partID?: string;
+          };
+          if (deltaProps.delta) {
+            lastMessageId = deltaProps.messageID || "";
+            callbacks.onText(deltaProps.delta);
+            yield deltaProps.delta;
+          }
         }
 
-        lastMessageId = msgId;
+        if (eventType === "message.part.updated") {
+          const partProps = eventProps as {
+            part?: {
+              type?: string;
+              tool?: string;
+              state?: {
+                status?: string;
+                input?: Record<string, unknown>;
+                output?: string;
+                error?: string;
+              };
+              callID?: string;
+              reason?: string;
+            };
+          };
+          const part = partProps.part;
 
-        // Process parts
-        for (const part of parts) {
-          if (signal?.aborted) break;
-
-          if (part.type === "text" && part.text) {
-            console.log("[AI/OpenCode] Text:", part.text.slice(0, 50));
-            callbacks.onText(part.text);
-            yield part.text;
-          }
-
-          if (part.type === "tool") {
-            console.log(
-              "[AI/OpenCode] Tool:",
-              part.tool,
-              "state:",
-              part.state?.status,
-              "callID:",
-              part.callID,
-            );
-
-            // With "allow" permission, tool executes immediately - just notify user
+          if (part?.type === "tool" && part.state) {
             if (
-              (part.state?.status === "pending" ||
-                part.state?.status === "running") &&
+              (part.state.status === "pending" ||
+                part.state.status === "running") &&
               part.callID && !handledToolCalls.has(part.callID)
             ) {
               handledToolCalls.add(part.callID);
-
-              const toolName = part.tool;
+              const toolName = part.tool || "unknown";
               const toolInput = part.state.input || {};
-              const command = toolInput.command as string || "";
+              const command = (toolInput.command as string) || "";
 
               console.log("[AI/OpenCode] Tool executing:", command);
-
-              // Show informational notification (non-blocking) instead of blocking dialog
               callbacks.onToolRequest(toolName, toolInput);
-
-              // No need to respond to permission - "allow" handles it
               callbacks.onToolResult(`Running: ${command}`);
             }
 
-            if (part.state?.status === "completed") {
+            if (part.state.status === "completed") {
               const output = part.state.output || "";
               console.log(
-                "[AI/OpenCode] Tool completed, output:",
+                "[AI/OpenCode] Tool completed:",
                 output.slice(0, 100),
               );
-              // Show the actual output
               callbacks.onToolResult(`Output: ${output.slice(0, 200)}`);
             }
 
-            if (part.state?.status === "error") {
+            if (part.state.status === "error") {
               const error = part.state.error || "Unknown error";
               console.log("[AI/OpenCode] Tool error:", error);
               callbacks.onToolResult(`Error: ${error}`);
             }
           }
 
-          if (part.type === "step-finish") {
+          if (part?.type === "step-finish") {
             console.log("[AI/OpenCode] Step finished, reason:", part.reason);
             if (part.reason === "stop" || part.reason === "length") {
               done = true;
             }
           }
         }
+
+        if (eventType === "message.updated") {
+          const msgProps = eventProps as {
+            info?: {
+              id?: string;
+              finish?: string;
+              time?: { completed?: number };
+              error?: unknown;
+            };
+          };
+          const info = msgProps.info;
+
+          if (info) {
+            lastMessageId = info.id || lastMessageId;
+
+            if (
+              info.finish === "stop" ||
+              info.finish === "length" ||
+              info.time?.completed
+            ) {
+              console.log("[AI/OpenCode] Message completed:", info.finish);
+              done = true;
+            }
+
+            if (info.error) {
+              console.log("[AI/OpenCode] Message error:", info.error);
+              callbacks.onError(String(info.error));
+              done = true;
+            }
+          }
+        }
+
+        if (done) {
+          break;
+        }
+      }
+
+      try {
+        // @ts-ignore - cancel method may not be in types
+        events.stream.cancel?.();
+      } catch {
+        // Ignore errors during cleanup
       }
 
       console.log("[AI/OpenCode] Done");
