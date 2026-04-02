@@ -106,7 +106,7 @@ export class AiSource implements Source {
       // Try to create new instance first (SDK will spawn opencode server)
       console.log("[AI/OpenCode] Trying to create new server instance...");
       try {
-        const opencode = await createOpencode({ timeout: 30000 });
+        const opencode = await createOpencode({ timeout: 30000, port: 0 });
         this.#opencodeInstance = opencode;
         this.#opencodeClient = opencode.client;
         this.#createdOwnServer = true;
