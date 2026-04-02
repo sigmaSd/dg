@@ -16,6 +16,7 @@ interface StreamCallback {
   onToolResult: (result: string) => void;
   onDone: () => void;
   onError: (error: string) => void;
+  onClearThoughts?: () => void;
 }
 
 type AiProvider = "openrouter" | "opencode";
@@ -79,11 +80,22 @@ export class AiSource implements Source {
 
     if (this.#opencodeUrl || this.#opencodeEnabled) {
       this.#provider = "opencode";
+      // Pre-warm the OpenCode server in background
+      void this.#warmupOpencode();
     } else {
       this.#openrouterKey = await this.#configManager.getApiKey();
       if (this.#openrouterKey) {
         this.#client = new OpenRouter({ apiKey: this.#openrouterKey });
       }
+    }
+  }
+
+  async #warmupOpencode(): Promise<void> {
+    try {
+      await this.#ensureOpencodeClient();
+      console.log("[AI/OpenCode] Server pre-warmed and ready");
+    } catch (e) {
+      console.log("[AI/OpenCode] Pre-warm failed:", e);
     }
   }
 
@@ -352,6 +364,7 @@ export class AiSource implements Source {
 
       const events = await client.event.subscribe();
       const handledToolCalls = new Set<string>();
+      const partIdToType = new Map<string, string>();
       let done = false;
       let lastMessageId = "";
 
@@ -378,17 +391,25 @@ export class AiSource implements Source {
             delta?: string;
             messageID?: string;
             partID?: string;
+            field?: string;
           };
           if (deltaProps.delta) {
             lastMessageId = deltaProps.messageID || "";
-            callbacks.onText(deltaProps.delta);
-            yield deltaProps.delta;
+
+            const partType = partIdToType.get(deltaProps.partID || "");
+
+            // Only show text, not reasoning
+            if (partType === "text" || !partType) {
+              callbacks.onText(deltaProps.delta);
+              yield deltaProps.delta;
+            }
           }
         }
 
         if (eventType === "message.part.updated") {
           const partProps = eventProps as {
             part?: {
+              id?: string;
               type?: string;
               tool?: string;
               state?: {
@@ -402,6 +423,14 @@ export class AiSource implements Source {
             };
           };
           const part = partProps.part;
+
+          if (part?.id && part.type) {
+            partIdToType.set(part.id, part.type);
+          }
+
+          if (part?.type === "step-finish") {
+            callbacks.onClearThoughts?.();
+          }
 
           if (part?.type === "tool" && part.state) {
             if (
