@@ -55,6 +55,7 @@ class DGApp {
   #debounceTimer: number | null = null;
   #aiMode = false;
   #aiText = "";
+  #aiMessages: { role: "user" | "assistant"; content: string }[] = [];
   #aiAbortController: AbortController | null = null;
   #aiFollowupTimer: number | null = null;
 
@@ -194,8 +195,12 @@ class DGApp {
         const query = this.#searchEntry?.getText() || "";
         console.log("[Main] AI follow-up, query:", query);
         if (query.trim()) {
+          // Store user message in conversation history
+          this.#aiMessages.push({ role: "user", content: query });
           void this.#enterAiMode(query);
-          this.#searchEntry?.setText("");
+          // Keep "ai " prefix, clear the rest, move cursor to end
+          this.#searchEntry?.setText("ai ");
+          this.#searchEntry?.selectRegion(3, 3);
         }
       } else {
         // Check if it's an AI trigger
@@ -205,7 +210,9 @@ class DGApp {
           console.log("[Main] Triggering AI");
           const processedQuery = query.slice(3).trim();
           void this.#enterAiMode(processedQuery);
-          this.#searchEntry?.setText("");
+          // Keep "ai " prefix for follow-ups, move cursor to end
+          this.#searchEntry?.setText("ai ");
+          this.#searchEntry?.selectRegion(3, 3);
         } else {
           void this.#activateResult(0);
         }
@@ -382,10 +389,10 @@ class DGApp {
 
     const row = new ListBoxRow();
     const mainBox = new Box(Orientation.VERTICAL, 8);
-    mainBox.setMarginTop(12);
-    mainBox.setMarginBottom(12);
-    mainBox.setMarginStart(12);
-    mainBox.setMarginEnd(12);
+    mainBox.setMarginTop(0);
+    mainBox.setMarginBottom(0);
+    mainBox.setMarginStart(0);
+    mainBox.setMarginEnd(0);
 
     const label = new Label(this.#aiText || "...");
     label.setProperty("xalign", 0);
@@ -406,6 +413,7 @@ class DGApp {
   #exitAiMode() {
     this.#aiMode = false;
     this.#aiText = "";
+    this.#aiMessages = [];
     if (this.#aiAbortController) {
       this.#aiAbortController.abort();
       this.#aiAbortController = null;
@@ -583,6 +591,11 @@ class DGApp {
   }
 
   async #activateResult(index: number) {
+    // Don't hide app if in AI mode (thinking or response shown)
+    if (this.#aiMode) {
+      return;
+    }
+
     if (index >= 0 && index < this.#currentResults.length) {
       const result = this.#currentResults[index];
       try {

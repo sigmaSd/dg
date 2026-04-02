@@ -66,6 +66,7 @@ export class AiSource implements Source {
   #opencodeInstance?: Awaited<ReturnType<typeof createOpencode>>;
   #opencodeClient?: Awaited<ReturnType<typeof createOpencode>>["client"];
   #createdOwnServer = false;
+  #sessionId?: string;
 
   constructor() {}
 
@@ -298,24 +299,29 @@ export class AiSource implements Source {
       // Get client (reuse if available)
       const client = await this.#ensureOpencodeClient();
 
-      // Create session with bash permission set to "ask" (will prompt DG for permission)
-      console.log("[AI/OpenCode] Creating session...");
-      // deno-lint-ignore no-explicit-any
-      const session = await (client.session.create as any)({
-        body: {
-          title: "DG AI Query",
-          // Permission array format - "allow" means OpenCode executes tools immediately
-          permission: [
-            { permission: "bash", pattern: "*", action: "allow" },
-          ],
-        },
-      });
-      const sessionId = session.data?.id;
+      // Reuse existing session or create new one
+      let sessionId = this.#sessionId;
       if (!sessionId) {
-        callbacks.onError("Failed to create session");
-        return;
+        console.log("[AI/OpenCode] Creating new session...");
+        // deno-lint-ignore no-explicit-any
+        const session = await (client.session.create as any)({
+          body: {
+            title: "DG AI Query",
+            permission: [
+              { permission: "bash", pattern: "*", action: "allow" },
+            ],
+          },
+        });
+        sessionId = session.data?.id;
+        if (!sessionId) {
+          callbacks.onError("Failed to create session");
+          return;
+        }
+        this.#sessionId = sessionId;
+        console.log("[AI/OpenCode] Session created:", sessionId);
+      } else {
+        console.log("[AI/OpenCode] Reusing session:", sessionId);
       }
-      console.log("[AI/OpenCode] Session:", sessionId);
 
       // Send message asynchronously
       console.log("[AI/OpenCode] Sending async message...");
@@ -568,10 +574,11 @@ export class AiSource implements Source {
   }
 
   clearConversation() {
-    // OpenCode handles conversation internally, no need to clear
+    // Clear the session so a new one is created next time
+    this.#sessionId = undefined;
   }
 
   hasConversation(): boolean {
-    return false;
+    return !!this.#sessionId;
   }
 }
