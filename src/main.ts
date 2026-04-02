@@ -17,11 +17,16 @@ import {
   ScrolledWindow,
   Spinner,
 } from "@sigmasd/gtk/gtk4";
-import { AdwApplicationWindow, ToolbarView } from "@sigmasd/gtk/adw";
+import {
+  AdwApplicationWindow,
+  MessageDialog,
+  ToolbarView,
+} from "@sigmasd/gtk/adw";
 import { EventLoop } from "@sigmasd/gtk/eventloop";
 import type { SearchResult, Source } from "./plugins/interface.ts";
 import { PluginLoader } from "./loader.ts";
 import { SimpleAction } from "@sigmasd/gtk/gio";
+import type { AiSource } from "./plugins/core/ai.ts";
 
 const APP_ID = "io.github.sigmasd.dg";
 const APP_FLAGS = 0;
@@ -40,12 +45,18 @@ class DGApp {
   #statusLabel?: Label;
   #spinner?: Spinner;
   #bottomBox?: Box;
+  #scrolledWindow?: ScrolledWindow;
 
   #loader: PluginLoader;
   #plugins: Source[] = [];
+  #aiSource?: AiSource;
   #currentResults: SearchResult[] = [];
   #latestSearchId = 0;
   #debounceTimer: number | null = null;
+  #aiMode = false;
+  #aiText = "";
+  #aiAbortController: AbortController | null = null;
+  #aiFollowupTimer: number | null = null;
 
   constructor() {
     this.#app = new Application(APP_ID, APP_FLAGS);
@@ -69,6 +80,12 @@ class DGApp {
     console.log("Loading plugins...");
     this.#setLoading(true, "Loading plugins...");
     this.#plugins = await this.#loader.loadPlugins(this.#win);
+
+    // Get AI source reference
+    this.#aiSource = this.#plugins.find((p) => p.id === "ai") as
+      | AiSource
+      | undefined;
+
     this.#setLoading(false);
     // Use the current text in the entry if the user already started typing
     const currentQuery = this.#searchEntry?.getText() || "";
@@ -96,6 +113,9 @@ class DGApp {
     quitAction.connect("activate", async () => {
       console.log("Quit action activated");
 
+      // Clear AI conversation
+      this.#aiSource?.clearConversation();
+
       // Cleanup all plugins
       for (const plugin of this.#plugins) {
         try {
@@ -119,7 +139,16 @@ class DGApp {
     // Hide Action (Escape)
     const hideAction = new SimpleAction("hide");
     hideAction.connect("activate", () => {
-      this.#win?.setVisible(false);
+      if (this.#aiMode) {
+        this.#exitAiMode();
+        this.#setLoading(false);
+        if (this.#searchEntry) {
+          this.#searchEntry.setText("");
+        }
+        this.#updateSearch("");
+      } else {
+        this.#win?.setVisible(false);
+      }
     });
     this.#win.addAction(hideAction);
     this.#app.setAccelsForAction("win.hide", ["Escape"]);
@@ -148,7 +177,7 @@ class DGApp {
     this.#searchEntry = new Entry();
     this.#searchEntry.setProperty(
       "placeholder-text",
-      "Type to search apps, or 'b' for browser...",
+      "Type to search apps, or 'ai <question>' for AI...",
     );
     this.#searchEntry.onChanged(() => {
       if (this.#debounceTimer !== null) {
@@ -160,7 +189,30 @@ class DGApp {
       }, 150);
     });
     this.#searchEntry.onActivate(() => {
-      void this.#activateResult(0);
+      if (this.#aiMode && this.#aiSource) {
+        // In AI mode, Enter sends follow-up
+        const query = this.#searchEntry?.getText() || "";
+        console.log("[Main] AI follow-up, query:", query);
+        if (query.trim()) {
+          void this.#enterAiMode(query, false);
+          this.#searchEntry?.setText("");
+        }
+      } else {
+        // Check if it's an AI trigger
+        const query = this.#searchEntry?.getText() || "";
+        console.log("[Main] Enter pressed, query:", query);
+        if (query.startsWith("ai:cb ") && this.#aiSource) {
+          console.log("[Main] Triggering AI with clipboard");
+          void this.#enterAiMode(query.slice(6).trim(), true);
+          this.#searchEntry?.setText("");
+        } else if (query.startsWith("ai ") && this.#aiSource) {
+          console.log("[Main] Triggering AI without clipboard");
+          void this.#enterAiMode(query.slice(3).trim(), false);
+          this.#searchEntry?.setText("");
+        } else {
+          void this.#activateResult(0);
+        }
+      }
     });
 
     searchBox.append(this.#searchEntry);
@@ -205,6 +257,7 @@ class DGApp {
     this.#win.setContent(toolbarView);
 
     this.#win.onCloseRequest(() => {
+      this.#aiSource?.clearConversation();
       this.#win?.setVisible(false);
       return true;
     });
@@ -215,7 +268,156 @@ class DGApp {
   #onSearchChanged() {
     if (!this.#searchEntry) return;
     const query = this.#searchEntry.getText();
-    this.#updateSearch(query);
+
+    // Only handle non-AI searches here
+    // AI mode is triggered on Enter key, not on typing
+    // Don't exit AI mode when query is empty (Enter was just pressed)
+    if (query && !query.startsWith("ai") && this.#aiMode) {
+      // Exit AI mode if user types something else
+      this.#exitAiMode();
+      this.#updateSearch(query);
+    } else if (!this.#aiMode) {
+      this.#updateSearch(query);
+    }
+  }
+
+  async #enterAiMode(query: string, includeClipboard: boolean = false) {
+    console.log(
+      "[Main] #enterAiMode called, query:",
+      query,
+      "includeClipboard:",
+      includeClipboard,
+    );
+
+    if (!this.#aiSource || !query.trim()) {
+      console.log("[Main] Early return - no source or empty query");
+      return;
+    }
+
+    // Abort any previous request
+    if (this.#aiAbortController) {
+      console.log("[Main] Aborting previous request");
+      this.#aiAbortController.abort();
+    }
+    this.#aiAbortController = new AbortController();
+
+    this.#aiMode = true;
+    this.#aiText = "";
+    this.#setLoading(true, "AI is thinking...");
+
+    // Hide list, show streaming text
+    if (this.#listBox) {
+      let child = this.#listBox.getFirstChild();
+      while (child) {
+        const next = this.#listBox.getNextSibling(child);
+        this.#listBox.remove(child);
+        child = next;
+      }
+    }
+
+    // Add a single "streaming" row
+    if (this.#listBox) {
+      const row = new ListBoxRow();
+      const label = new Label("🤖 AI is responding...");
+      label.setProperty("xalign", 0);
+      label.setMarkup("<b>🤖 AI is responding...</b>");
+      row.setChild(label);
+      this.#listBox.append(row);
+    }
+
+    // Start streaming
+    const callbacks = {
+      onText: (text: string) => {
+        console.log("[Main] onText received:", text.slice(0, 50));
+        this.#aiText += text;
+        this.#updateAiDisplay();
+      },
+      onToolRequest: (tool: string, args: Record<string, unknown>) => {
+        console.log("[Main] onToolRequest:", tool, args);
+
+        // With "allow" permission, tools execute immediately - show info notification
+        const command = args.command as string || "";
+        if (command) {
+          this.#showToolInfoNotification(command);
+        }
+      },
+      onToolResult: (result: string) => {
+        console.log("[Main] onToolResult:", result.slice(0, 50));
+        // Append tool result to AI text for display
+        this.#aiText += "\n" + result;
+        this.#updateAiDisplay();
+      },
+      onDone: () => {
+        console.log("[Main] onDone");
+        this.#setLoading(false);
+      },
+      onError: (error: string) => {
+        console.log("[Main] onError:", error);
+        this.#setLoading(true, `Error: ${error}`);
+      },
+    };
+
+    console.log("[Main] Calling streamResponse...");
+    try {
+      for await (
+        const _ of this.#aiSource.streamResponse(query, {
+          includeClipboard,
+          callbacks,
+          signal: this.#aiAbortController.signal,
+        })
+      ) {
+        // Stream updates happen via callbacks
+      }
+      console.log("[Main] streamResponse completed");
+    } catch (e) {
+      console.log("[Main] streamResponse error:", e);
+    }
+  }
+
+  #updateAiDisplay() {
+    if (!this.#listBox) return;
+
+    // Clear and show current text
+    let child = this.#listBox.getFirstChild();
+    while (child) {
+      const next = this.#listBox.getNextSibling(child);
+      this.#listBox.remove(child);
+      child = next;
+    }
+
+    const row = new ListBoxRow();
+    const mainBox = new Box(Orientation.VERTICAL, 8);
+    mainBox.setMarginTop(12);
+    mainBox.setMarginBottom(12);
+    mainBox.setMarginStart(12);
+    mainBox.setMarginEnd(12);
+
+    const label = new Label(this.#aiText || "...");
+    label.setProperty("xalign", 0);
+    label.setProperty("wrap", true);
+    label.setProperty("wrap-mode", 2); // WORD
+    label.setProperty("width-chars", 50);
+    label.setMarkup(
+      `<span size="large">${
+        this.#escapeMarkup(this.#aiText || "Thinking...")
+      }</span>`,
+    );
+
+    mainBox.append(label);
+    row.setChild(mainBox);
+    this.#listBox.append(row);
+  }
+
+  #exitAiMode() {
+    this.#aiMode = false;
+    this.#aiText = "";
+    if (this.#aiAbortController) {
+      this.#aiAbortController.abort();
+      this.#aiAbortController = null;
+    }
+    if (this.#aiSource) {
+      this.#aiSource.clearConversation();
+    }
   }
 
   #updateSearch(query: string) {
@@ -228,6 +430,41 @@ class DGApp {
     const parts = query.split(" ");
     const trigger = parts[0];
     const args = parts.slice(1).join(" ");
+
+    // Check for AI trigger - only activate on Enter, just show placeholder here
+    if (trigger === "ai" || trigger === "ai:cb") {
+      const providerName = this.#aiSource?.getProvider() === "opencode"
+        ? "OpenCode"
+        : "OpenRouter";
+      const hasClipboard = trigger === "ai:cb";
+
+      if (parts.length === 1) {
+        // Just "ai" or "ai:cb" - show help
+        results = [{
+          title: `AI (${providerName})`,
+          subtitle: hasClipboard
+            ? "Press Enter with clipboard context"
+            : "Press Enter to ask a question",
+          icon: "dialog-information",
+          score: 100,
+          onActivate: () => {},
+        }];
+      } else {
+        // Has query - show "press enter to send"
+        results = [{
+          title: `Ask AI (${providerName})`,
+          subtitle: "Press Enter to send",
+          icon: "dialog-information",
+          score: 100,
+          id: "ai-placeholder",
+          onActivate: () => {},
+        }];
+      }
+
+      this.#currentResults = results;
+      this.#renderList(results);
+      return;
+    }
 
     // Check if a plugin matches the specific trigger
     // Only trigger if there is at least one space after the trigger
@@ -286,6 +523,9 @@ class DGApp {
 
   #renderList(results: SearchResult[]) {
     if (!this.#listBox) return;
+
+    // Don't render in AI mode - we handle that separately
+    if (this.#aiMode) return;
 
     const t0 = DEBUG ? performance.now() : 0;
 
@@ -382,6 +622,54 @@ class DGApp {
     }
 
     await this.#eventLoop.start(this.#app);
+  }
+
+  #showToolPermissionDialog(command: string): Promise<boolean> {
+    console.log("[Main] Showing permission dialog for:", command);
+
+    return new Promise((resolve) => {
+      const dialog = new MessageDialog(
+        this.#win!,
+        "Tool Permission",
+        `Allow this command to run?\n\n${command}`,
+      );
+
+      dialog.addResponse("allow", "Allow");
+      dialog.addResponse("deny", "Deny");
+      dialog.setDefaultResponse("allow");
+      dialog.setCloseResponse("deny");
+
+      dialog.onResponse((response: string) => {
+        console.log("[Main] Dialog response:", response);
+        const approved = response === "allow";
+        dialog.destroy();
+        resolve(approved);
+      });
+
+      dialog.present();
+    });
+  }
+
+  #showToolInfoNotification(command: string) {
+    console.log("[Main] Showing info notification for:", command);
+
+    // Show a non-blocking info message - stays until user dismisses
+    // This gives feedback that something is running
+    const dialog = new MessageDialog(
+      this.#win!,
+      "Running Command",
+      `Executing: ${command}\n\nThis message will stay until you dismiss it.`,
+    );
+
+    dialog.addResponse("close", "Close");
+    dialog.setDefaultResponse("close");
+    dialog.setCloseResponse("close");
+
+    dialog.onResponse(() => {
+      dialog.destroy();
+    });
+
+    dialog.present();
   }
 }
 

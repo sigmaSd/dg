@@ -13,6 +13,7 @@ import { AppSource } from "./plugins/core/apps.ts";
 import { FirefoxSource } from "./plugins/core/firefox.ts";
 import { StoreSource } from "./plugins/core/store.ts";
 import { CalculatorSource } from "./plugins/core/calculator.ts";
+import { AiSource } from "./plugins/core/ai.ts";
 
 export class PluginLoader {
   #plugins: Source[] = [];
@@ -26,6 +27,7 @@ export class PluginLoader {
     this.#plugins.push(new FirefoxSource());
     this.#plugins.push(new StoreSource(window));
     this.#plugins.push(new CalculatorSource(window));
+    this.#plugins.push(new AiSource());
 
     // 2. Load User Plugins from config
     const config = await this.#configManager.read();

@@ -8,6 +8,9 @@ export interface PluginEntry {
 
 export interface Config {
   plugins: PluginEntry[];
+  openrouterApiKey?: string;
+  opencodeServerUrl?: string;
+  opencodeEnabled?: boolean;
 }
 
 export class ConfigManager {
@@ -92,5 +95,50 @@ export class ConfigManager {
         JSON.stringify(config, null, 2),
       );
     }
+  }
+
+  async getApiKey(): Promise<string | undefined> {
+    const config = await this.read();
+    return config.openrouterApiKey;
+  }
+
+  async setApiKey(key: string) {
+    await this.ensureConfigDir();
+    const config = await this.read();
+    config.openrouterApiKey = key;
+    await Deno.writeTextFile(
+      this.#configPath,
+      JSON.stringify(config, null, 2),
+    );
+  }
+
+  async getOpencodeServerUrl(): Promise<string | undefined> {
+    const config = await this.read();
+    return config.opencodeServerUrl;
+  }
+
+  async setOpencodeServerUrl(url: string) {
+    await this.ensureConfigDir();
+    const config = await this.read();
+    config.opencodeServerUrl = url;
+    await Deno.writeTextFile(
+      this.#configPath,
+      JSON.stringify(config, null, 2),
+    );
+  }
+
+  async isOpencodeEnabled(): Promise<boolean> {
+    const config = await this.read();
+    return config.opencodeEnabled ?? false;
+  }
+
+  async setOpencodeEnabled(enabled: boolean) {
+    await this.ensureConfigDir();
+    const config = await this.read();
+    config.opencodeEnabled = enabled;
+    await Deno.writeTextFile(
+      this.#configPath,
+      JSON.stringify(config, null, 2),
+    );
   }
 }
