@@ -2,7 +2,7 @@ import type { SearchResult, Source } from "../interface.ts";
 import { ConfigManager } from "../../config.ts";
 import { normalizeInputToArray, OpenRouter, tool } from "@openrouter/sdk";
 import { z } from "zod";
-import { createOpencode, createOpencodeClient } from "@opencode-ai/sdk";
+import { createOpencode } from "@opencode-ai/sdk";
 
 interface StreamOptions {
   includeClipboard?: boolean;
@@ -49,7 +49,7 @@ const runCommandTool = tool({
   },
 });
 
-const SYSTEM_INSTRUCTIONS =
+const SYSTEM_INSTRUCTIONS_OPENROUTER =
   `You are a helpful AI assistant. Be concise. Only use run_command when the user explicitly asks to run a shell command (e.g., "run ls", "execute ffmpeg").`;
 
 export class AiSource implements Source {
@@ -67,6 +67,9 @@ export class AiSource implements Source {
   #opencodeClient?: Awaited<ReturnType<typeof createOpencode>>["client"];
   #createdOwnServer = false;
   #sessionId?: string;
+  #abortController?: AbortController;
+
+  #opencodePort?: number;
 
   constructor() {}
 
@@ -94,34 +97,38 @@ export class AiSource implements Source {
 
     console.log("[AI/OpenCode] Getting OpenCode client...");
 
-    if (this.#opencodeUrl) {
-      // Connect to existing server using client
-      const client = createOpencodeClient({
-        baseUrl: this.#opencodeUrl,
-      });
-      this.#opencodeClient = client;
-      console.log("[AI/OpenCode] Using existing server:", this.#opencodeUrl);
-      return this.#opencodeClient;
-    } else if (this.#opencodeEnabled) {
-      // Try to create new instance first (SDK will spawn opencode server)
-      console.log("[AI/OpenCode] Trying to create new server instance...");
+    if (this.#opencodeEnabled) {
+      // Always spawn our own server to ensure it works
+      console.log("[AI/OpenCode] Spawning new server...");
+
+      // Create abort controller for cleanup
+      this.#abortController = new AbortController();
+
       try {
-        const opencode = await createOpencode({ timeout: 30000, port: 0 });
+        const opencode = await createOpencode({
+          timeout: 30000,
+          port: 0,
+          signal: this.#abortController.signal,
+        });
         this.#opencodeInstance = opencode;
         this.#opencodeClient = opencode.client;
         this.#createdOwnServer = true;
-        console.log("[AI/OpenCode] Created server at:", opencode.server.url);
+
+        // Extract port from URL like http://127.0.0.1:4096
+        const url = opencode.server.url;
+        const portMatch = url.match(/:(\d+)$/);
+        this.#opencodePort = portMatch ? parseInt(portMatch[1], 10) : 4096;
+
+        console.log(
+          "[AI/OpenCode] Created server at:",
+          url,
+          "port:",
+          this.#opencodePort,
+        );
         return this.#opencodeClient;
       } catch (createErr) {
         console.log("[AI/OpenCode] Failed to create server:", createErr);
-        // Fall back to connecting to existing server on default port
-        const existingUrl = "http://127.0.0.1:4096";
-        console.log("[AI/OpenCode] Trying existing server at:", existingUrl);
-        const client = createOpencodeClient({
-          baseUrl: existingUrl,
-        });
-        this.#opencodeClient = client;
-        return this.#opencodeClient;
+        throw new Error("OpenCode not available");
       }
     } else {
       throw new Error("OpenCode not configured");
@@ -224,7 +231,7 @@ export class AiSource implements Source {
       try {
         const result = this.#client!.callModel({
           model: "minimax/minimax-m2.5:free",
-          instructions: SYSTEM_INSTRUCTIONS,
+          instructions: SYSTEM_INSTRUCTIONS_OPENROUTER,
           // deno-lint-ignore no-explicit-any
           input: normalizeInputToArray(messages as any),
           tools: [runCommandTool],
@@ -328,6 +335,15 @@ export class AiSource implements Source {
       await client.session.promptAsync({
         path: { id: sessionId },
         body: {
+          tools: {
+            // TODO: implement these
+            read: false,
+            edit: false,
+            write: false,
+            grep: false,
+            glob: false,
+            task: false,
+          },
           parts: [{ type: "text", text: fullMessage }],
         },
       });
@@ -509,26 +525,6 @@ export class AiSource implements Source {
     }
   }
 
-  async #executeBash(command: string): Promise<string> {
-    console.log("[AI/OpenCode] Executing bash:", command);
-    try {
-      const parts = command.split(" ");
-      const cmd = new Deno.Command(parts[0], {
-        args: parts.slice(1),
-        stdout: "piped",
-        stderr: "piped",
-      });
-      const { stdout, stderr } = await cmd.output();
-
-      const stdoutText = new TextDecoder().decode(stdout);
-      const stderrText = new TextDecoder().decode(stderr);
-
-      return stdoutText || stderrText || "Command completed with no output";
-    } catch (e) {
-      return `Error: ${e instanceof Error ? e.message : String(e)}`;
-    }
-  }
-
   #formatUserError(error: Error, statusCode?: number): string {
     console.error("[AI/OpenRouter] Final error:", {
       statusCode,
@@ -580,5 +576,64 @@ export class AiSource implements Source {
 
   hasConversation(): boolean {
     return !!this.#sessionId;
+  }
+
+  async destroy(): Promise<void> {
+    console.log("[AI/OpenCode] Destroying...", {
+      hasInstance: !!this.#opencodeInstance,
+      createdOwnServer: this.#createdOwnServer,
+      sessionId: this.#sessionId,
+      hasAbortController: !!this.#abortController,
+      port: this.#opencodePort,
+    });
+
+    // Only close if we created the server ourselves
+    if (this.#createdOwnServer) {
+      // First try graceful shutdown via abort signal
+      if (this.#abortController) {
+        console.log("[AI/OpenCode] Aborting signal...");
+        this.#abortController.abort();
+        this.#abortController = undefined;
+      }
+
+      // Try server.close()
+      if (this.#opencodeInstance) {
+        console.log("[AI/OpenCode] Calling server.close()...");
+        try {
+          this.#opencodeInstance.server.close();
+          console.log("[AI/OpenCode] server.close() returned");
+        } catch (e) {
+          console.error("[AI/OpenCode] Error closing server:", e);
+        }
+      }
+
+      // Force kill by port as backup
+      if (this.#opencodePort) {
+        console.log(
+          "[AI/OpenCode] Force killing process on port:",
+          this.#opencodePort,
+        );
+        try {
+          const killCmd = new Deno.Command("fuser", {
+            args: ["-k", `${this.#opencodePort}/tcp`],
+            stdout: "piped",
+            stderr: "piped",
+          });
+          await killCmd.output();
+          console.log("[AI/OpenCode] Force kill sent");
+        } catch (e) {
+          console.log("[AI/OpenCode] Force kill error:", e);
+        }
+      }
+    } else {
+      console.log("[AI/OpenCode] Did not create server, not closing");
+    }
+
+    this.#sessionId = undefined;
+    this.#opencodeClient = undefined;
+    this.#opencodeInstance = undefined;
+    this.#createdOwnServer = false;
+    this.#opencodePort = undefined;
+    console.log("[AI/OpenCode] Destroy complete");
   }
 }

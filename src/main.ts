@@ -192,7 +192,11 @@ class DGApp {
     this.#searchEntry.onActivate(() => {
       if (this.#aiMode && this.#aiSource) {
         // In AI mode, Enter sends follow-up
-        const query = this.#searchEntry?.getText() || "";
+        const rawQuery = this.#searchEntry?.getText() || "";
+        // Strip "ai " prefix for follow-ups too
+        const query = rawQuery.startsWith("ai ")
+          ? rawQuery.slice(3).trim()
+          : rawQuery;
         console.log("[Main] AI follow-up, query:", query);
         if (query.trim()) {
           // Store user message in conversation history
