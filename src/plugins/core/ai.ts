@@ -2,7 +2,7 @@ import type { SearchResult, Source } from "../interface.ts";
 import { ConfigManager } from "../../config.ts";
 import { normalizeInputToArray, OpenRouter, tool } from "@openrouter/sdk";
 import { z } from "zod";
-import { createOpencode } from "@opencode-ai/sdk";
+import { createOpencode, type OpencodeClient } from "@opencode-ai/sdk";
 
 interface StreamOptions {
   includeClipboard?: boolean;
@@ -71,6 +71,7 @@ export class AiSource implements Source {
   #abortController?: AbortController;
 
   #opencodePort?: number;
+  #initializingOpencode: Promise<OpencodeClient> | null = null;
 
   constructor() {}
 
@@ -99,51 +100,62 @@ export class AiSource implements Source {
     }
   }
 
-  async #ensureOpencodeClient(): Promise<
-    Awaited<ReturnType<typeof createOpencode>>["client"]
-  > {
+  async #ensureOpencodeClient(): Promise<OpencodeClient> {
     // If we have a client, assume it's still working
     if (this.#opencodeClient) {
       return this.#opencodeClient;
     }
 
+    // If already initializing, wait for it
+    if (this.#initializingOpencode) {
+      const client = await this.#initializingOpencode;
+      return client;
+    }
+
     console.log("[AI/OpenCode] Getting OpenCode client...");
 
     if (this.#opencodeEnabled) {
-      // Always spawn our own server to ensure it works
-      console.log("[AI/OpenCode] Spawning new server...");
+      // Create the initialization promise
+      this.#initializingOpencode = this.#createOpencodeClient();
 
-      // Create abort controller for cleanup
-      this.#abortController = new AbortController();
-
-      try {
-        const opencode = await createOpencode({
-          timeout: 30000,
-          port: 0,
-          signal: this.#abortController.signal,
-        });
-        this.#opencodeInstance = opencode;
-        this.#opencodeClient = opencode.client;
-        this.#createdOwnServer = true;
-
-        // Extract port from URL like http://127.0.0.1:4096
-        const url = opencode.server.url;
-        const portMatch = url.match(/:(\d+)$/);
-        this.#opencodePort = portMatch ? parseInt(portMatch[1], 10) : 4096;
-
-        console.log(
-          "[AI/OpenCode] Created server at:",
-          url,
-          "port:",
-          this.#opencodePort,
-        );
-        return this.#opencodeClient;
-      } catch (createErr) {
-        console.log("[AI/OpenCode] Failed to create server:", createErr);
-        throw new Error("OpenCode not available");
-      }
+      const client = await this.#initializingOpencode;
+      this.#initializingOpencode = null;
+      return client;
     } else {
       throw new Error("OpenCode not configured");
+    }
+  }
+
+  async #createOpencodeClient(): Promise<OpencodeClient> {
+    console.log("[AI/OpenCode] Spawning new server...");
+
+    // Create abort controller for cleanup
+    this.#abortController = new AbortController();
+
+    try {
+      const opencode = await createOpencode({
+        timeout: 30000,
+        port: 0,
+        signal: this.#abortController.signal,
+      });
+      this.#opencodeInstance = opencode;
+      this.#opencodeClient = opencode.client;
+
+      // Extract port from URL like http://127.0.0.1:4096
+      const url = opencode.server.url;
+      const portMatch = url.match(/:(\d+)$/);
+      this.#opencodePort = portMatch ? parseInt(portMatch[1], 10) : 4096;
+
+      console.log(
+        "[AI/OpenCode] Created server at:",
+        url,
+        "port:",
+        this.#opencodePort,
+      );
+      return opencode.client;
+    } catch (createErr) {
+      console.log("[AI/OpenCode] Failed to create server:", createErr);
+      throw new Error("OpenCode not available");
     }
   }
 
