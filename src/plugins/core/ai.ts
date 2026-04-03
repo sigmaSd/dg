@@ -63,7 +63,7 @@ export class AiSource implements Source {
   #opencodeUrl?: string;
   #opencodeEnabled?: boolean;
   #client?: OpenRouter;
-  #provider: AiProvider = "openrouter";
+  #provider: AiProvider = "opencode";
   #opencodeInstance?: Awaited<ReturnType<typeof createOpencode>>;
   #opencodeClient?: Awaited<ReturnType<typeof createOpencode>>["client"];
   #createdOwnServer = false;
