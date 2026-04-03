@@ -227,9 +227,9 @@ class DGApp {
     contentBox.append(searchBox);
 
     // Results List
-    const scrolled = new ScrolledWindow();
-    scrolled.setProperty("vexpand", true);
-    scrolled.setProperty("hscrollbar-policy", 2); // GTK_POLICY_NEVER
+    this.#scrolledWindow = new ScrolledWindow();
+    this.#scrolledWindow.setProperty("vexpand", true);
+    this.#scrolledWindow.setProperty("hscrollbar-policy", 2); // GTK_POLICY_NEVER
 
     this.#listBox = new ListBox();
     this.#listBox.setProperty("selection-mode", 1);
@@ -241,8 +241,8 @@ class DGApp {
     this.#listBox.onRowActivated((_row, index) => {
       void this.#activateResult(index);
     });
-    scrolled.setChild(this.#listBox);
-    contentBox.append(scrolled);
+    this.#scrolledWindow.setChild(this.#listBox);
+    contentBox.append(this.#scrolledWindow);
 
     toolbarView.setContent(contentBox);
 
@@ -322,22 +322,25 @@ class DGApp {
       }
     }
 
+    // Show initial user question
+    this.#updateAiDisplay("user", query);
+
     // Start streaming
     const callbacks = {
       onText: (text: string) => {
         console.log("[Main] onText received:", text.slice(0, 50));
         this.#aiText += text;
-        this.#updateAiDisplay();
+        this.#updateAiDisplay("assistant");
       },
       onToolRequest: (tool: string, args: Record<string, unknown>) => {
         console.log("[Main] onToolRequest:", tool, args);
+        this.#aiText = ""; // Clear for next assistant block
         // Silently handle - don't show popup
       },
       onToolResult: (result: string) => {
         console.log("[Main] onToolResult:", result.slice(0, 50));
-        // Append tool result to AI text for display
-        this.#aiText += "\n" + result;
-        this.#updateAiDisplay();
+        this.#aiText = ""; // Clear for next assistant block
+        this.#updateAiDisplay("tool", result);
       },
       onDone: () => {
         console.log("[Main] onDone");
@@ -365,35 +368,114 @@ class DGApp {
     }
   }
 
-  #updateAiDisplay() {
+  #updateAiDisplay(
+    role: "user" | "assistant" | "tool" = "assistant",
+    text?: string,
+  ) {
     if (!this.#listBox) return;
 
-    let row = this.#listBox.getFirstChild() as ListBoxRow | null;
-    let label: Label | null = null;
+    const content = text || this.#aiText;
+    if (!content) return;
 
-    if (!row) {
-      row = new ListBoxRow();
-      const mainBox = new Box(Orientation.VERTICAL, 8);
-      label = new Label(this.#aiText || "...");
-      label.setProperty("xalign", 0);
-      label.setProperty("wrap", true);
-      label.setProperty("wrap-mode", 2); // WORD
-      label.setProperty("width-chars", 50);
-      mainBox.append(label);
-      row.setChild(mainBox);
-      this.#listBox.append(row);
+    const row = new ListBoxRow();
+    const mainBox = new Box(Orientation.VERTICAL, 4);
+    mainBox.setMarginTop(8);
+    mainBox.setMarginBottom(8);
+    mainBox.setMarginStart(12);
+    mainBox.setMarginEnd(12);
+
+    const label = new Label("");
+    label.setProperty("xalign", 0);
+    label.setProperty("wrap", true);
+    label.setProperty("wrap-mode", 2); // WORD
+    label.setProperty("width-chars", 50);
+
+    let bgColor = "";
+    let prefix = "";
+    let opacity = "100%";
+
+    if (role === "user") {
+      bgColor = "rgba(100, 100, 255, 0.1)";
+      prefix = "<b>You:</b> ";
+    } else if (role === "tool") {
+      bgColor = "rgba(150, 150, 150, 0.1)";
+      prefix = "<i>[Tool]</i> ";
+      opacity = "80%";
     } else {
-      const mainBox = row.getChild() as Box;
-      label = mainBox.getFirstChild() as Label;
+      prefix = "<b>AI:</b> ";
     }
 
-    if (label) {
-      label.setMarkup(
-        `<span size="large">${
-          this.#escapeMarkup(this.#aiText || "Thinking...")
-        }</span>`,
-      );
+    const markup = this.#convertToPango(content);
+    label.setMarkup(
+      `<span alpha="${opacity}">${prefix}${markup}</span>`,
+    );
+
+    if (bgColor) {
+      // We can't easily set background color of a Box without CSS in GTK4
+      // but we can at least style the text differently.
+      // For now, let's just use the prefix and opacity.
     }
+
+    mainBox.append(label);
+    row.setChild(mainBox);
+
+    // If assistant is streaming, we update the LAST row if it's an assistant row
+    const lastRow = this.#listBox.getLastChild() as ListBoxRow | null;
+    let updated = false;
+
+    if (role === "assistant" && lastRow) {
+      const lastBox = lastRow.getChild() as Box;
+      const lastLabel = lastBox.getFirstChild() as Label;
+      const lastText = lastLabel.getText();
+
+      // Check if it's an assistant row (starts with AI:)
+      // Note: getText() returns the plain text without markup
+      if (lastText.startsWith("AI: ")) {
+        lastLabel.setMarkup(
+          `<span alpha="${opacity}">${prefix}${markup}</span>`,
+        );
+        updated = true;
+      }
+    }
+
+    if (!updated) {
+      this.#listBox.append(row);
+    }
+
+    // Auto-scroll to bottom
+    const adjustment = this.#scrolledWindow?.getVadjustment();
+    if (adjustment) {
+      // Use a small timeout to ensure GTK has updated the layout
+      setTimeout(() => {
+        adjustment.setValue(adjustment.getUpper() - adjustment.getPageSize());
+      }, 50);
+    }
+  }
+
+  #convertToPango(text: string): string {
+    let escaped = this.#escapeMarkup(text);
+
+    // Basic markdown conversion
+    // Code blocks: ```code``` -> <tt>code</tt>
+    escaped = escaped.replace(
+      /```([\s\S]*?)```/g,
+      '<tt><span background="#333" foreground="#eee">$1</span></tt>',
+    );
+
+    // Inline code: `code` -> <tt>code</tt>
+    escaped = escaped.replace(/`([^`]+)`/g, "<tt>$1</tt>");
+
+    // Bold: **text** -> <b>text</b>
+    escaped = escaped.replace(/\*\*([^\*]+)\*\*/g, "<b>$1</b>");
+
+    // Italic: *text* -> <i>text</i>
+    escaped = escaped.replace(/\*([^\*]+)\*/g, "<i>$1</i>");
+
+    // Newlines to <br/> is not needed for Pango in a wrapping label,
+    // but multiple spaces/newlines might need handling.
+    // Actually, Pango handles \n fine in labels.
+
+    return escaped;
   }
 
   #exitAiMode() {

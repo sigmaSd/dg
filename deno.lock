@@ -6,7 +6,7 @@
     "jsr:@sigmasd/dg-plugin-prompts@0.1.1": "0.1.1",
     "jsr:@sigmasd/dg-plugin-prompts@0.1.2": "0.1.2",
     "jsr:@sigmasd/dg-plugin-scripts@0.2.0": "0.2.0",
-    "jsr:@sigmasd/gtk@0.59.0": "0.59.0",
+    "jsr:@sigmasd/gtk@0.60.0": "0.60.0",
     "jsr:@std/assert@^1.0.19": "1.0.19",
     "jsr:@std/internal@^1.0.12": "1.0.12",
     "jsr:@std/path@^1.1.4": "1.1.4",
@@ -45,8 +45,8 @@
         "jsr:@std/path"
       ]
     },
-    "@sigmasd/gtk@0.59.0": {
-      "integrity": "bceca2fcaf84cc01732dcda4d185b20885aa1f339c4227f6b7732ffda153f7f4",
+    "@sigmasd/gtk@0.60.0": {
+      "integrity": "4e1303cab2dfa2d4108d9c89a052a24ce9ac5813881b99e78cfe7cf92be19742",
       "dependencies": [
         "jsr:@sigma/deno-compat"
       ]
@@ -425,7 +425,7 @@
   },
   "workspace": {
     "dependencies": [
-      "jsr:@sigmasd/gtk@0.59.0",
+      "jsr:@sigmasd/gtk@0.60.0",
       "jsr:@std/assert@^1.0.19",
       "jsr:@std/path@^1.1.4",
       "npm:@opencode-ai/sdk@1.3.13",
