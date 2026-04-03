@@ -462,13 +462,43 @@ export class AiSource implements Source {
               ) {
                 handledToolCalls.add(part.callID);
                 const toolName = part.tool || "unknown";
-                const toolInput = part.state.input || {};
-                const command = (toolInput.command as string) || "";
+                const toolInput = (part.state.input || {}) as Record<
+                  string,
+                  unknown
+                >;
+
+                let toolDesc = `Using tool: ${toolName}`;
+                const path = toolInput.path || toolInput.filePath ||
+                  toolInput.file;
+                const command = toolInput.command || toolInput.script ||
+                  toolInput.code;
 
                 if (command) {
-                  callbacks.onToolRequest(toolName, toolInput);
-                  callbacks.onToolResult(`Running: ${command}`);
+                  toolDesc = `Running: ${command}`;
+                } else if (path) {
+                  const action = toolName === "read"
+                    ? "Reading"
+                    : toolName === "write"
+                    ? "Writing"
+                    : toolName === "edit"
+                    ? "Editing"
+                    : "Accessing";
+                  toolDesc = `${action}: ${path}`;
+                } else if (toolInput.pattern) {
+                  toolDesc = `Searching for: ${toolInput.pattern}`;
+                } else {
+                  // Fallback: show first key/value if available
+                  const keys = Object.keys(toolInput);
+                  if (keys.length > 0) {
+                    const firstVal = String(toolInput[keys[0]]);
+                    toolDesc = `${toolName}: ${firstVal.slice(0, 50)}${
+                      firstVal.length > 50 ? "..." : ""
+                    }`;
+                  }
                 }
+
+                callbacks.onToolRequest(toolName, toolInput);
+                callbacks.onToolResult(toolDesc);
               }
             }
 
@@ -485,8 +515,7 @@ export class AiSource implements Source {
 
           if (part?.type === "step-finish") {
             if (
-              part.reason === "stop" || part.reason === "length" ||
-              part.reason === "tool-calls"
+              part.reason === "stop" || part.reason === "length"
             ) {
               done = true;
             }
@@ -506,13 +535,6 @@ export class AiSource implements Source {
 
           if (info) {
             lastMessageId = info.id || lastMessageId;
-
-            if (
-              info.finish === "stop" || info.finish === "length" ||
-              info.finish === "tool-calls" || info.time?.completed
-            ) {
-              done = true;
-            }
 
             if (info.error) {
               callbacks.onError(String(info.error));

@@ -322,16 +322,6 @@ class DGApp {
       }
     }
 
-    // Add a single "streaming" row
-    if (this.#listBox) {
-      const row = new ListBoxRow();
-      const label = new Label("🤖 AI is responding...");
-      label.setProperty("xalign", 0);
-      label.setMarkup("<b>🤖 AI is responding...</b>");
-      row.setChild(label);
-      this.#listBox.append(row);
-    }
-
     // Start streaming
     const callbacks = {
       onText: (text: string) => {
@@ -378,35 +368,32 @@ class DGApp {
   #updateAiDisplay() {
     if (!this.#listBox) return;
 
-    // Clear and show current text
-    let child = this.#listBox.getFirstChild();
-    while (child) {
-      const next = this.#listBox.getNextSibling(child);
-      this.#listBox.remove(child);
-      child = next;
+    let row = this.#listBox.getFirstChild() as ListBoxRow | null;
+    let label: Label | null = null;
+
+    if (!row) {
+      row = new ListBoxRow();
+      const mainBox = new Box(Orientation.VERTICAL, 8);
+      label = new Label(this.#aiText || "...");
+      label.setProperty("xalign", 0);
+      label.setProperty("wrap", true);
+      label.setProperty("wrap-mode", 2); // WORD
+      label.setProperty("width-chars", 50);
+      mainBox.append(label);
+      row.setChild(mainBox);
+      this.#listBox.append(row);
+    } else {
+      const mainBox = row.getChild() as Box;
+      label = mainBox.getFirstChild() as Label;
     }
 
-    const row = new ListBoxRow();
-    const mainBox = new Box(Orientation.VERTICAL, 8);
-    mainBox.setMarginTop(0);
-    mainBox.setMarginBottom(0);
-    mainBox.setMarginStart(0);
-    mainBox.setMarginEnd(0);
-
-    const label = new Label(this.#aiText || "...");
-    label.setProperty("xalign", 0);
-    label.setProperty("wrap", true);
-    label.setProperty("wrap-mode", 2); // WORD
-    label.setProperty("width-chars", 50);
-    label.setMarkup(
-      `<span size="large">${
-        this.#escapeMarkup(this.#aiText || "Thinking...")
-      }</span>`,
-    );
-
-    mainBox.append(label);
-    row.setChild(mainBox);
-    this.#listBox.append(row);
+    if (label) {
+      label.setMarkup(
+        `<span size="large">${
+          this.#escapeMarkup(this.#aiText || "Thinking...")
+        }</span>`,
+      );
+    }
   }
 
   #exitAiMode() {
