@@ -505,9 +505,7 @@ class DGApp {
 
     // Check for AI trigger - only activate on Enter, just show placeholder here
     if (trigger === "ai") {
-      const providerName = this.#aiSource?.getProvider() === "opencode"
-        ? "OpenCode"
-        : "OpenRouter";
+      const providerName = "OpenCode";
       const hasClipboard = args.includes("$clipboard") || args.includes("$cb");
 
       if (parts.length === 1) {

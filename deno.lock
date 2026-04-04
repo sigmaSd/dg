@@ -12,10 +12,8 @@
     "jsr:@std/path@^1.1.4": "1.1.4",
     "npm:@google/gemini-cli@0.36.0": "0.36.0",
     "npm:@opencode-ai/sdk@1.3.13": "1.3.13",
-    "npm:@openrouter/sdk@0.10.2": "0.10.2",
     "npm:emojilib@^4.0.2": "4.0.2",
-    "npm:opencode-ai@*": "1.3.13",
-    "npm:zod@*": "4.3.6"
+    "npm:opencode-ai@*": "1.3.13"
   },
   "jsr": {
     "@sigma/deno-compat@0.23.0": {
@@ -125,13 +123,6 @@
     },
     "@opencode-ai/sdk@1.3.13": {
       "integrity": "sha512-/M6HlNnba+xf1EId6qFb2tG0cvq0db3PCQDug1glrf8wYOU57LYNF8WvHX9zoDKPTMv0F+O4pcP/8J+WvDaxHA=="
-    },
-    "@openrouter/sdk@0.10.2": {
-      "integrity": "sha512-od0aWkk+vhndEI78YyPvPgMxv2+32KO4MRrk8lFxro/YABKAHkozXugc+x3YeNf/d9KQaBO6M4Rut1uf+yeD2g==",
-      "dependencies": [
-        "zod"
-      ],
-      "scripts": true
     },
     "base64-js@1.5.1": {
       "integrity": "sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA=="
@@ -418,9 +409,6 @@
     },
     "wrappy@1.0.2": {
       "integrity": "sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ=="
-    },
-    "zod@4.3.6": {
-      "integrity": "sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg=="
     }
   },
   "workspace": {
@@ -428,9 +416,7 @@
       "jsr:@sigmasd/gtk@0.60.0",
       "jsr:@std/assert@^1.0.19",
       "jsr:@std/path@^1.1.4",
-      "npm:@opencode-ai/sdk@1.3.13",
-      "npm:@openrouter/sdk@0.10.2",
-      "npm:zod@*"
+      "npm:@opencode-ai/sdk@1.3.13"
     ]
   }
 }

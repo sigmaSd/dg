@@ -1,7 +1,5 @@
 import type { SearchResult, Source } from "../interface.ts";
 import { ConfigManager } from "../../config.ts";
-import { normalizeInputToArray, OpenRouter, tool } from "@openrouter/sdk";
-import { z } from "zod";
 import { createOpencode, type OpencodeClient } from "@opencode-ai/sdk";
 import { readClipboard } from "../../utils/clipboard.ts";
 
@@ -20,51 +18,14 @@ interface StreamCallback {
   onClearThoughts?: () => void;
 }
 
-type AiProvider = "openrouter" | "opencode";
-
-const runCommandTool = tool({
-  name: "run_command",
-  description: "Execute a shell command and return the output",
-  inputSchema: z.object({
-    command: z.string().describe("The shell command to execute"),
-  }),
-  outputSchema: z.object({
-    output: z.string().describe("The command output or error"),
-  }),
-  execute: async ({ command }: { command: string }) => {
-    try {
-      const parts = command.split(" ");
-      const cmd = new Deno.Command(parts[0], {
-        args: parts.slice(1),
-        stdout: "piped",
-        stderr: "piped",
-      });
-      const { stdout, stderr } = await cmd.output();
-
-      const stdoutText = new TextDecoder().decode(stdout);
-      const stderrText = new TextDecoder().decode(stderr);
-
-      return { output: stdoutText || stderrText || "Command completed" };
-    } catch (e) {
-      return { output: `Error: ${e instanceof Error ? e.message : String(e)}` };
-    }
-  },
-});
-
-const SYSTEM_INSTRUCTIONS_OPENROUTER =
-  `You are a helpful AI assistant. Be concise. Only use run_command when the user explicitly asks to run a shell command (e.g., "run ls", "execute ffmpeg").`;
-
 export class AiSource implements Source {
   id = "ai";
   name = "AI Assistant";
-  description = "Ask AI questions via OpenRouter or OpenCode";
+  description = "Ask AI questions via OpenCode";
   trigger = "ai";
   #configManager = new ConfigManager();
-  #openrouterKey?: string;
   #opencodeUrl?: string;
   #opencodeEnabled?: boolean;
-  #client?: OpenRouter;
-  #provider: AiProvider = "opencode";
   #opencodeInstance?: Awaited<ReturnType<typeof createOpencode>>;
   #opencodeClient?: Awaited<ReturnType<typeof createOpencode>>["client"];
   #createdOwnServer = false;
@@ -81,14 +42,8 @@ export class AiSource implements Source {
     this.#opencodeEnabled = await this.#configManager.isOpencodeEnabled();
 
     if (this.#opencodeUrl || this.#opencodeEnabled) {
-      this.#provider = "opencode";
       // Pre-warm the OpenCode server in background
       void this.#warmupOpencode();
-    } else {
-      this.#openrouterKey = await this.#configManager.getApiKey();
-      if (this.#openrouterKey) {
-        this.#client = new OpenRouter({ apiKey: this.#openrouterKey });
-      }
     }
   }
 
@@ -138,7 +93,9 @@ export class AiSource implements Source {
         timeout: 30000,
         port: 0,
         signal: this.#abortController.signal,
-        config: { permission: { external_directory: "allow" } },
+        config: {
+          permission: { external_directory: "allow" },
+        },
       });
       this.#opencodeInstance = opencode;
       this.#opencodeClient = opencode.client;
@@ -163,18 +120,17 @@ export class AiSource implements Source {
   }
 
   getProvider(): string {
-    return this.#provider;
+    return "opencode";
   }
 
   // deno-lint-ignore require-await
   async search(query: string): Promise<SearchResult[]> {
     const hasOpencode = !!this.#opencodeUrl || !!this.#opencodeEnabled;
-    const hasOpenrouter = !!this.#openrouterKey;
 
-    if (!hasOpencode && !hasOpenrouter) {
+    if (!hasOpencode) {
       return [{
         title: "No AI Provider",
-        subtitle: "Set opencodeEnabled: true or add openrouterApiKey in config",
+        subtitle: "Set opencodeEnabled: true in config",
         icon: "dialog-error",
         score: 100,
         onActivate: () => {},
@@ -182,11 +138,8 @@ export class AiSource implements Source {
     }
 
     if (!query.trim()) {
-      const providerName = this.#provider === "opencode"
-        ? "OpenCode"
-        : "OpenRouter";
       return [{
-        title: `AI (${providerName})`,
+        title: "AI (OpenCode)",
         subtitle: "Type 'ai <question>' to ask anything",
         icon: "dialog-information",
         score: 100,
@@ -210,103 +163,11 @@ export class AiSource implements Source {
   ): AsyncGenerator<string> {
     const { includeClipboard = false, callbacks, signal } = options;
 
-    if (this.#provider === "opencode") {
-      yield* this.#streamOpencode(query, {
-        includeClipboard,
-        callbacks,
-        signal,
-      });
-    } else if (this.#client && this.#openrouterKey) {
-      yield* this.#streamOpenrouter(query, {
-        includeClipboard,
-        callbacks,
-        signal,
-      });
-    } else {
-      callbacks.onError("No AI provider configured");
-    }
-  }
-
-  async *#streamOpenrouter(
-    query: string,
-    options: StreamOptions,
-  ): AsyncGenerator<string> {
-    const { includeClipboard = false, callbacks, signal } = options;
-
-    const messages: { role: string; content: string }[] = [];
-
-    if (includeClipboard) {
-      const clipboardText = await readClipboard();
-      if (clipboardText && clipboardText.trim()) {
-        messages.push({
-          role: "user",
-          content: `My clipboard has: "${clipboardText.trim()}"`,
-        });
-      }
-    }
-
-    messages.push({ role: "user", content: query });
-
-    const maxRetries = 3;
-    const baseDelay = 2000;
-
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      if (signal?.aborted) {
-        return;
-      }
-
-      try {
-        const result = this.#client!.callModel({
-          model: "minimax/minimax-m2.5:free",
-          instructions: SYSTEM_INSTRUCTIONS_OPENROUTER,
-          // deno-lint-ignore no-explicit-any
-          input: normalizeInputToArray(messages as any),
-          tools: [runCommandTool],
-        });
-
-        let fullText = "";
-
-        for await (const delta of result.getTextStream()) {
-          if (signal?.aborted) {
-            return;
-          }
-          fullText += delta;
-          callbacks.onText(delta);
-          yield delta;
-        }
-
-        callbacks.onDone();
-        return;
-      } catch (e) {
-        if (signal?.aborted) {
-          return;
-        }
-
-        const err = e instanceof Error ? e : new Error(String(e));
-        const statusCode =
-          (err as unknown as { statusCode?: number }).statusCode;
-        const isRetryable = statusCode === 429 ||
-          (statusCode !== undefined && statusCode >= 500 && statusCode < 600);
-
-        console.error(
-          `[AI/OpenRouter] Error (attempt ${attempt + 1}/${maxRetries}):`,
-          {
-            statusCode,
-            message: err.message,
-          },
-        );
-
-        if (isRetryable && attempt < maxRetries - 1) {
-          const delay = baseDelay * Math.pow(2, attempt);
-          console.log(`[AI/OpenRouter] Retrying in ${delay}ms...`);
-          await new Promise((r) => setTimeout(r, delay));
-          continue;
-        }
-
-        callbacks.onError(this.#formatUserError(err, statusCode));
-        return;
-      }
-    }
+    yield* this.#streamOpencode(query, {
+      includeClipboard,
+      callbacks,
+      signal,
+    });
   }
 
   async *#streamOpencode(
@@ -569,26 +430,6 @@ export class AiSource implements Source {
       // Keep server alive for next request - don't close it
       // The server will be reused on next query
       console.log("[AI/OpenCode] Keeping server alive for next request");
-    }
-  }
-
-  #formatUserError(error: Error, statusCode?: number): string {
-    console.error("[AI/OpenRouter] Final error:", {
-      statusCode,
-      message: error.message,
-    });
-
-    switch (statusCode) {
-      case 401:
-        return "Invalid API key. Check your openrouterApiKey in config.";
-      case 402:
-        return "No credits remaining. Add credits at openrouter.ai";
-      case 429:
-        return "Rate limited. Try again in a moment.";
-      case 503:
-        return "Service unavailable. Try again later.";
-      default:
-        return error.message || "An error occurred";
     }
   }
 
