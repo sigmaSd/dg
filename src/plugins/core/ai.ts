@@ -3,6 +3,7 @@ import { ConfigManager } from "../../config.ts";
 import { normalizeInputToArray, OpenRouter, tool } from "@openrouter/sdk";
 import { z } from "zod";
 import { createOpencode, type OpencodeClient } from "@opencode-ai/sdk";
+import { readClipboard } from "../../utils/clipboard.ts";
 
 interface StreamOptions {
   includeClipboard?: boolean;
@@ -235,7 +236,7 @@ export class AiSource implements Source {
     const messages: { role: string; content: string }[] = [];
 
     if (includeClipboard) {
-      const clipboardText = await this.#readClipboard();
+      const clipboardText = await readClipboard();
       if (clipboardText && clipboardText.trim()) {
         messages.push({
           role: "user",
@@ -320,7 +321,7 @@ export class AiSource implements Source {
       let contextContent = "";
 
       if (includeClipboard) {
-        const clipboardText = await this.#readClipboard();
+        const clipboardText = await readClipboard();
         if (clipboardText && clipboardText.trim()) {
           contextContent = `User clipboard: ${clipboardText.trim()}\n\n`;
         }
@@ -589,30 +590,6 @@ export class AiSource implements Source {
       default:
         return error.message || "An error occurred";
     }
-  }
-
-  async #readClipboard(): Promise<string> {
-    try {
-      if (Deno.build.os === "linux") {
-        const cmd = new Deno.Command("wl-paste", {
-          stdout: "piped",
-          stderr: "piped",
-        });
-        const { stdout } = await cmd.output();
-        return new TextDecoder().decode(stdout);
-      } else if (Deno.build.os === "windows") {
-        const cmd = new Deno.Command("powershell", {
-          args: ["-Command", "Get-Clipboard"],
-          stdout: "piped",
-          stderr: "piped",
-        });
-        const { stdout } = await cmd.output();
-        return new TextDecoder().decode(stdout);
-      }
-    } catch {
-      return "";
-    }
-    return "";
   }
 
   clearConversation() {

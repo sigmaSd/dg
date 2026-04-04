@@ -27,6 +27,7 @@ import type { SearchResult, Source } from "./plugins/interface.ts";
 import { PluginLoader } from "./loader.ts";
 import { SimpleAction } from "@sigmasd/gtk/gio";
 import type { AiSource } from "./plugins/core/ai.ts";
+import { readClipboard } from "./utils/clipboard.ts";
 
 const APP_ID = "io.github.sigmasd.dg";
 const APP_FLAGS = 0;
@@ -754,7 +755,7 @@ class DGApp {
     // Replace $cb and $clipboard with clipboard content
     if (result.includes("$cb") || result.includes("$clipboard")) {
       try {
-        const clipboardText = await this.#readClipboard();
+        const clipboardText = await readClipboard();
         if (clipboardText && clipboardText.trim()) {
           result = result.replace(/\$clipboard/gi, clipboardText.trim());
           result = result.replace(/\$cb/gi, clipboardText.trim());
@@ -765,30 +766,6 @@ class DGApp {
     }
 
     return result;
-  }
-
-  async #readClipboard(): Promise<string> {
-    try {
-      if (Deno.build.os === "linux") {
-        const cmd = new Deno.Command("wl-paste", {
-          stdout: "piped",
-          stderr: "piped",
-        });
-        const { stdout } = await cmd.output();
-        return new TextDecoder().decode(stdout);
-      } else if (Deno.build.os === "windows") {
-        const cmd = new Deno.Command("powershell", {
-          args: ["-Command", "Get-Clipboard"],
-          stdout: "piped",
-          stderr: "piped",
-        });
-        const { stdout } = await cmd.output();
-        return new TextDecoder().decode(stdout);
-      }
-    } catch {
-      console.warn("[Main] Failed to read clipboard");
-    }
-    return "";
   }
 }
 
