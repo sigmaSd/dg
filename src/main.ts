@@ -5,6 +5,7 @@
  */
 
 import {
+  Align,
   Application,
   Box,
   Entry,
@@ -48,6 +49,7 @@ class DGApp {
   #statusLabel?: Label;
   #spinner?: Spinner;
   #bottomBox?: Box;
+  #modelLabel?: Label;
   #scrolledWindow?: ScrolledWindow;
 
   #loader: PluginLoader;
@@ -115,6 +117,29 @@ class DGApp {
     }
     if (this.#bottomBox) {
       this.#bottomBox.setVisible(loading || !!message);
+    }
+  }
+
+  #showModelInStatus() {
+    const model = this.#aiSource?.getModel();
+    const modelName = model ? model.split("/").pop() : "default";
+    if (this.#modelLabel) {
+      this.#modelLabel.setText(modelName || "");
+    }
+    if (this.#bottomBox) {
+      this.#bottomBox.setVisible(true);
+    }
+  }
+
+  #clearStatus() {
+    if (this.#statusLabel) {
+      this.#statusLabel.setText("");
+    }
+    if (this.#modelLabel) {
+      this.#modelLabel.setText("");
+    }
+    if (this.#bottomBox) {
+      this.#bottomBox.setVisible(false);
     }
   }
 
@@ -308,7 +333,18 @@ class DGApp {
     this.#bottomBox.append(this.#spinner);
 
     this.#statusLabel = new Label("");
+    this.#statusLabel.setHalign(Align.START);
     this.#bottomBox.append(this.#statusLabel);
+
+    // Spacer to push model label to the right
+    const spacer = new Box(Orientation.HORIZONTAL, 0);
+    spacer.setHexpand(true);
+    this.#bottomBox.append(spacer);
+
+    // Right-aligned model label
+    this.#modelLabel = new Label("");
+    this.#modelLabel.setHalign(Align.END);
+    this.#bottomBox.append(this.#modelLabel);
 
     toolbarView.addBottomBar(this.#bottomBox);
 
@@ -528,6 +564,9 @@ class DGApp {
       return;
     }
 
+    // Update placeholder to show current model
+    this.#updateAiPlaceholder();
+
     // Replace variables like $cb/$clipboard with actual content
     const resolvedQuery = await this.#resolveVariables(query);
     console.log("[Main] Resolved query:", resolvedQuery);
@@ -542,6 +581,8 @@ class DGApp {
     this.#aiMode = true;
     this.#aiText = "";
     this.#setLoading(true, "AI is thinking...");
+    this.#updateAiPlaceholder();
+    this.#showModelInStatus();
 
     // Hide list, show streaming text
     if (this.#listBox) {
@@ -587,7 +628,14 @@ class DGApp {
           this.#aiMessages.push({ role: "assistant", content: this.#aiText });
           this.#aiText = "";
         }
-        this.#setLoading(false);
+        if (this.#spinner) this.#spinner.stop();
+        if (this.#statusLabel) this.#statusLabel.setText("");
+        this.#showModelInStatus();
+        if (this.#searchEntry) {
+          this.#searchEntry.setText("ai ");
+          this.#searchEntry.selectRegion(3, 3);
+        }
+        this.#updateAiPlaceholder();
       },
       onError: (error: string) => {
         console.log("[Main] onError:", error);
@@ -732,6 +780,28 @@ class DGApp {
     if (this.#aiSource) {
       this.#aiSource.clearConversation();
     }
+    this.#resetPlaceholder();
+    this.#clearStatus();
+  }
+
+  #updateAiPlaceholder() {
+    const model = this.#aiSource?.getModel();
+    const modelName = model ? model.split("/").pop() : "default";
+    if (this.#searchEntry) {
+      this.#searchEntry.setProperty(
+        "placeholder-text",
+        `Ask AI (${modelName})...`,
+      );
+    }
+  }
+
+  #resetPlaceholder() {
+    if (this.#searchEntry) {
+      this.#searchEntry.setProperty(
+        "placeholder-text",
+        "Type to search apps, or 'ai <question>' for AI...",
+      );
+    }
   }
 
   #updateSearch(query: string) {
@@ -747,13 +817,13 @@ class DGApp {
 
     // Check for AI trigger - only activate on Enter, just show placeholder here
     if (trigger === "ai") {
-      const providerName = "OpenCode";
+      const model = this.#aiSource?.getModel();
+      const modelName = model ? model.split("/").pop() : "default";
       const hasClipboard = args.includes("$clipboard") || args.includes("$cb");
 
       if (parts.length === 1) {
-        // Just "ai" or "$clipboard" - show help
         results = [{
-          title: `AI (${providerName})`,
+          title: `Ask AI (${modelName})`,
           subtitle: hasClipboard
             ? "Press Enter with clipboard context"
             : "Type a question and press Enter",
@@ -762,9 +832,8 @@ class DGApp {
           onActivate: () => {},
         }];
       } else {
-        // Has query - show "press enter to send"
         results = [{
-          title: `Ask AI (${providerName})`,
+          title: `Ask AI (${modelName})`,
           subtitle: "Press Enter to send",
           icon: "dialog-information",
           score: 100,

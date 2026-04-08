@@ -126,6 +126,10 @@ export class AiSource implements Source {
     return "opencode";
   }
 
+  getModel(): string | undefined {
+    return this.#currentModel;
+  }
+
   // deno-lint-ignore require-await
   async search(query: string): Promise<SearchResult[]> {
     const hasOpencode = !!this.#opencodeUrl || !!this.#opencodeEnabled;
