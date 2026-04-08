@@ -69,7 +69,9 @@ export class ConfigManager {
 
   async getCachedModels(): Promise<CachedModel[] | null> {
     const kv = await this.#kvPromise;
-    const meta = await kv.get<{ timestamp: number; count: number }>(["models_meta"]);
+    const meta = await kv.get<{ timestamp: number; count: number }>([
+      "models_meta",
+    ]);
 
     if (meta.value) {
       // Refresh cache if older than 24 hours

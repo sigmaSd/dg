@@ -28,7 +28,7 @@ import { PluginLoader } from "./loader.ts";
 import { SimpleAction } from "@sigmasd/gtk/gio";
 import type { AiSource } from "./plugins/core/ai.ts";
 import { readClipboard } from "./utils/clipboard.ts";
-import Fuse from "fuse.js";
+import { Fzf } from "fzf";
 import type { CachedModel } from "./config.ts";
 
 const APP_ID = "io.github.sigmasd.dg";
@@ -64,7 +64,7 @@ class DGApp {
 
   #modelMode = false;
   #modelList: CachedModel[] = [];
-  #fuse: Fuse<CachedModel> | null = null;
+  #fuse: Fzf<CachedModel[]> | null = null;
   #modelFilterFree = false;
   #savedAiMode = false;
 
@@ -354,18 +354,20 @@ class DGApp {
     }
 
     let filtered: CachedModel[];
-    if (query && this.#fuse) {
-      // Re-create fuse with filtered list if free filter is on
-      const fuseInstance = this.#modelFilterFree
-        ? new Fuse(list, {
-          keys: ["name", "id", "provider"],
-          threshold: 0.3,
+    if (query) {
+      const fzfInstance = this.#modelFilterFree
+        ? new Fzf(list, {
+          selector: (m: CachedModel) =>
+            `${m.name} ${m.provider}/${m.id} ${m.provider} ${m.id}`,
         })
         : this.#fuse;
 
-      filtered = fuseInstance.search(query).map((res: { item: CachedModel }) =>
-        res.item
-      );
+      if (fzfInstance) {
+        const entries = fzfInstance.find(query);
+        filtered = entries.map((entry: { item: CachedModel }) => entry.item);
+      } else {
+        filtered = [];
+      }
     } else {
       filtered = list;
     }
@@ -412,9 +414,9 @@ class DGApp {
     const cached = await this.#loader.configManager.getCachedModels();
     if (cached) {
       this.#modelList = cached;
-      this.#fuse = new Fuse(this.#modelList, {
-        keys: ["name", "id", "provider"],
-        threshold: 0.3,
+      this.#fuse = new Fzf(this.#modelList, {
+        selector: (m: CachedModel) =>
+          `${m.name} ${m.provider}/${m.id} ${m.provider} ${m.id}`,
       });
     }
 
@@ -425,8 +427,10 @@ class DGApp {
       const list: CachedModel[] = [];
 
       for (const [providerId, providerData] of Object.entries(data)) {
+        // deno-lint-ignore no-explicit-any
         const models = (providerData as any).models || {};
         for (const [modelId, modelData] of Object.entries(models)) {
+          // deno-lint-ignore no-explicit-any
           const m = modelData as any;
           const name = m.name || modelId;
           const isFree = modelId.toLowerCase().includes("free") &&
@@ -445,9 +449,9 @@ class DGApp {
       this.#modelList = list.sort((a, b) =>
         `${a.provider}/${a.id}`.localeCompare(`${b.provider}/${b.id}`)
       );
-      this.#fuse = new Fuse(this.#modelList, {
-        keys: ["name", "id", "provider"],
-        threshold: 0.3,
+      this.#fuse = new Fzf(this.#modelList, {
+        selector: (m: CachedModel) =>
+          `${m.name} ${m.provider}/${m.id} ${m.provider} ${m.id}`,
       });
 
       // Update cache
@@ -466,7 +470,9 @@ class DGApp {
       this.#searchEntry.setText("");
       this.#searchEntry.setProperty(
         "placeholder-text",
-        this.#modelFilterFree ? "Search free models..." : "Search all models...",
+        this.#modelFilterFree
+          ? "Search free models..."
+          : "Search all models...",
       );
       this.#searchEntry.grabFocus();
     }
@@ -568,7 +574,10 @@ class DGApp {
       },
       onToolResult: (result: string) => {
         console.log("[Main] onToolResult:", result.slice(0, 50));
-        this.#aiMessages.push({ role: "assistant", content: `[Tool Output] ${result}` });
+        this.#aiMessages.push({
+          role: "assistant",
+          content: `[Tool Output] ${result}`,
+        });
         this.#aiText = ""; // Clear for next assistant block
         this.#updateAiDisplay("assistant", `[Tool Output] ${result}`);
       },
