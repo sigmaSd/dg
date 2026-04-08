@@ -28,6 +28,8 @@ import { PluginLoader } from "./loader.ts";
 import { SimpleAction } from "@sigmasd/gtk/gio";
 import type { AiSource } from "./plugins/core/ai.ts";
 import { readClipboard } from "./utils/clipboard.ts";
+import Fuse from "fuse.js";
+import type { CachedModel } from "./config.ts";
 
 const APP_ID = "io.github.sigmasd.dg";
 const APP_FLAGS = 0;
@@ -60,6 +62,12 @@ class DGApp {
   #aiAbortController: AbortController | null = null;
   #aiFollowupTimer: number | null = null;
 
+  #modelMode = false;
+  #modelList: CachedModel[] = [];
+  #fuse: Fuse<CachedModel> | null = null;
+  #modelFilterFree = false;
+  #savedAiMode = false;
+
   constructor() {
     this.#app = new Application(APP_ID, APP_FLAGS);
     this.#eventLoop = new EventLoop({ pollInterval: 16 });
@@ -87,6 +95,9 @@ class DGApp {
     this.#aiSource = this.#plugins.find((p) => p.id === "ai") as
       | AiSource
       | undefined;
+
+    // Pre-warm models list
+    void this.#fetchModels();
 
     this.#setLoading(false);
     // Use the current text in the entry if the user already started typing
@@ -141,6 +152,10 @@ class DGApp {
     // Hide Action (Escape)
     const hideAction = new SimpleAction("hide");
     hideAction.connect("activate", () => {
+      if (this.#modelMode) {
+        this.#exitModelMode();
+        return;
+      }
       if (this.#aiMode) {
         this.#exitAiMode();
         this.#setLoading(false);
@@ -154,6 +169,32 @@ class DGApp {
     });
     this.#win.addAction(hideAction);
     this.#app.setAccelsForAction("win.hide", ["Escape"]);
+
+    // Model Picker (Ctrl+M)
+    const modelAction = new SimpleAction("models");
+    modelAction.connect("activate", () => {
+      if (this.#modelMode && !this.#modelFilterFree) {
+        this.#exitModelMode();
+      } else {
+        this.#modelFilterFree = false;
+        void this.#enterModelMode();
+      }
+    });
+    this.#win.addAction(modelAction);
+    this.#app.setAccelsForAction("win.models", ["<Control>m"]);
+
+    // Free Model Picker (Ctrl+Shift+M)
+    const freeModelsAction = new SimpleAction("free-models");
+    freeModelsAction.connect("activate", () => {
+      if (this.#modelMode && this.#modelFilterFree) {
+        this.#exitModelMode();
+      } else {
+        this.#modelFilterFree = true;
+        void this.#enterModelMode();
+      }
+    });
+    this.#win.addAction(freeModelsAction);
+    this.#app.setAccelsForAction("win.free-models", ["<Control><Shift>m"]);
   }
 
   #buildUI() {
@@ -191,6 +232,10 @@ class DGApp {
       }, 150);
     });
     this.#searchEntry.onActivate(() => {
+      if (this.#modelMode) {
+        void this.#activateResult(0);
+        return;
+      }
       if (this.#aiMode && this.#aiSource) {
         // In AI mode, Enter sends follow-up
         const rawQuery = this.#searchEntry?.getText() || "";
@@ -200,8 +245,6 @@ class DGApp {
           : rawQuery;
         console.log("[Main] AI follow-up, query:", query);
         if (query.trim()) {
-          // Store user message in conversation history
-          this.#aiMessages.push({ role: "user", content: query });
           void this.#enterAiMode(query);
           // Keep "ai " prefix, clear the rest, move cursor to end
           this.#searchEntry?.setText("ai ");
@@ -220,6 +263,7 @@ class DGApp {
           this.#searchEntry?.selectRegion(3, 3);
         } else {
           void this.#activateResult(0);
+          this.#win?.setVisible(false);
         }
       }
     });
@@ -240,7 +284,12 @@ class DGApp {
     this.#listBox.setMarginEnd(12);
 
     this.#listBox.onRowActivated((_row, index) => {
-      void this.#activateResult(index);
+      if (this.#modelMode) {
+        void this.#activateResult(index);
+      } else if (!this.#aiMode) {
+        void this.#activateResult(index);
+        this.#win?.setVisible(false);
+      }
     });
     this.#scrolledWindow.setChild(this.#listBox);
     contentBox.append(this.#scrolledWindow);
@@ -278,6 +327,11 @@ class DGApp {
     if (!this.#searchEntry) return;
     const query = this.#searchEntry.getText();
 
+    if (this.#modelMode) {
+      this.#updateModelSearch(query);
+      return;
+    }
+
     // Only handle non-AI searches here
     // AI mode is triggered on Enter key, not on typing
     // Don't exit AI mode when query is empty (Enter was just pressed)
@@ -287,6 +341,176 @@ class DGApp {
       this.#updateSearch(query);
     } else if (!this.#aiMode) {
       this.#updateSearch(query);
+    }
+  }
+
+  #updateModelSearch(query: string) {
+    const searchId = ++this.#latestSearchId;
+    this.#setLoading(false);
+
+    let list = this.#modelList;
+    if (this.#modelFilterFree) {
+      list = list.filter((m) => m.isFree);
+    }
+
+    let filtered: CachedModel[];
+    if (query && this.#fuse) {
+      // Re-create fuse with filtered list if free filter is on
+      const fuseInstance = this.#modelFilterFree
+        ? new Fuse(list, {
+          keys: ["name", "id", "provider"],
+          threshold: 0.3,
+        })
+        : this.#fuse;
+
+      filtered = fuseInstance.search(query).map((res: { item: CachedModel }) =>
+        res.item
+      );
+    } else {
+      filtered = list;
+    }
+
+    // Limit to 40 results for performance
+    filtered = filtered.slice(0, 40);
+
+    const results: SearchResult[] = filtered.map((m) => ({
+      title: m.name,
+      subtitle: `${m.provider}/${m.id}${m.isFree ? " (free)" : ""}`,
+      icon: "preferences-system-symbolic",
+      score: 100,
+      onActivate: async () => {
+        this.#setLoading(true, `Switching to ${m.name}...`);
+        const success = await this.#aiSource?.setModel(`${m.provider}/${m.id}`);
+        this.#setLoading(false);
+        if (success) {
+          this.#statusLabel?.setText(`Model changed to ${m.name}`);
+          setTimeout(() => {
+            if (this.#statusLabel?.getText() === `Model changed to ${m.name}`) {
+              this.#statusLabel?.setText("");
+            }
+          }, 3000);
+        } else {
+          this.#statusLabel?.setText(`Failed to change model`);
+          setTimeout(() => {
+            if (this.#statusLabel?.getText() === `Failed to change model`) {
+              this.#statusLabel?.setText("");
+            }
+          }, 3000);
+        }
+        // When activating a model, we want to stay in the app and return to previous mode
+        this.#exitModelMode();
+      },
+    }));
+
+    if (searchId === this.#latestSearchId) {
+      this.#currentResults = results;
+      this.#renderList(results);
+    }
+  }
+
+  async #fetchModels() {
+    const cached = await this.#loader.configManager.getCachedModels();
+    if (cached) {
+      this.#modelList = cached;
+      this.#fuse = new Fuse(this.#modelList, {
+        keys: ["name", "id", "provider"],
+        threshold: 0.3,
+      });
+    }
+
+    // Background fetch fresh models
+    try {
+      const resp = await fetch("https://models.dev/api.json");
+      const data = await resp.json();
+      const list: CachedModel[] = [];
+
+      for (const [providerId, providerData] of Object.entries(data)) {
+        const models = (providerData as any).models || {};
+        for (const [modelId, modelData] of Object.entries(models)) {
+          const m = modelData as any;
+          const name = m.name || modelId;
+          const isFree = modelId.toLowerCase().includes("free") &&
+            m.status !== "deprecated";
+
+          list.push({
+            id: modelId,
+            name,
+            provider: providerId,
+            isFree,
+          });
+        }
+      }
+
+      // Deduplicate and sort
+      this.#modelList = list.sort((a, b) =>
+        `${a.provider}/${a.id}`.localeCompare(`${b.provider}/${b.id}`)
+      );
+      this.#fuse = new Fuse(this.#modelList, {
+        keys: ["name", "id", "provider"],
+        threshold: 0.3,
+      });
+
+      // Update cache
+      void this.#loader.configManager.setCachedModels(this.#modelList);
+    } catch (e) {
+      console.error("Failed to fetch models:", e);
+    }
+  }
+
+  async #enterModelMode() {
+    this.#savedAiMode = this.#aiMode;
+    this.#modelMode = true;
+    this.#aiMode = false; // Temporarily disable AI mode UI for picker
+
+    if (this.#searchEntry) {
+      this.#searchEntry.setText("");
+      this.#searchEntry.setProperty(
+        "placeholder-text",
+        this.#modelFilterFree ? "Search free models..." : "Search all models...",
+      );
+      this.#searchEntry.grabFocus();
+    }
+
+    if (this.#modelList.length === 0) {
+      this.#setLoading(true, "Fetching models...");
+      await this.#fetchModels();
+      this.#setLoading(false);
+    }
+
+    this.#updateModelSearch("");
+  }
+
+  #exitModelMode() {
+    this.#modelMode = false;
+    this.#aiMode = this.#savedAiMode;
+
+    if (this.#searchEntry) {
+      this.#searchEntry.setText(this.#aiMode ? "ai " : "");
+      this.#searchEntry.setProperty(
+        "placeholder-text",
+        "Type to search apps, or 'ai <question>' for AI...",
+      );
+      if (this.#aiMode) {
+        this.#searchEntry.selectRegion(3, 3);
+      }
+    }
+
+    if (!this.#aiMode) {
+      this.#updateSearch("");
+    } else {
+      // Restore AI display
+      if (this.#listBox) {
+        let child = this.#listBox.getFirstChild();
+        while (child) {
+          const next = this.#listBox.getNextSibling(child);
+          this.#listBox.remove(child);
+          child = next;
+        }
+      }
+      // Re-render the AI conversation if we have messages
+      for (const msg of this.#aiMessages) {
+        this.#updateAiDisplay(msg.role, msg.content);
+      }
     }
   }
 
@@ -335,16 +559,25 @@ class DGApp {
       },
       onToolRequest: (tool: string, args: Record<string, unknown>) => {
         console.log("[Main] onToolRequest:", tool, args);
+        // Save current thinking before clearing for tool output
+        if (this.#aiText) {
+          this.#aiMessages.push({ role: "assistant", content: this.#aiText });
+        }
         this.#aiText = ""; // Clear for next assistant block
         // Silently handle - don't show popup
       },
       onToolResult: (result: string) => {
         console.log("[Main] onToolResult:", result.slice(0, 50));
+        this.#aiMessages.push({ role: "assistant", content: `[Tool Output] ${result}` });
         this.#aiText = ""; // Clear for next assistant block
-        this.#updateAiDisplay("tool", result);
+        this.#updateAiDisplay("assistant", `[Tool Output] ${result}`);
       },
       onDone: () => {
         console.log("[Main] onDone");
+        if (this.#aiText) {
+          this.#aiMessages.push({ role: "assistant", content: this.#aiText });
+          this.#aiText = "";
+        }
         this.#setLoading(false);
       },
       onError: (error: string) => {
@@ -658,16 +891,10 @@ class DGApp {
   }
 
   async #activateResult(index: number) {
-    // Don't hide app if in AI mode (thinking or response shown)
-    if (this.#aiMode) {
-      return;
-    }
-
     if (index >= 0 && index < this.#currentResults.length) {
       const result = this.#currentResults[index];
       try {
         await result.onActivate();
-        this.#win?.setVisible(false);
       } catch (e) {
         console.error("Activation failed:", e);
         this.#setLoading(

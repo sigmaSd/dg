@@ -34,12 +34,14 @@ export class AiSource implements Source {
 
   #opencodePort?: number;
   #initializingOpencode: Promise<OpencodeClient> | null = null;
+  #currentModel?: string;
 
   constructor() {}
 
   async init(): Promise<void> {
     this.#opencodeUrl = await this.#configManager.getOpencodeServerUrl();
     this.#opencodeEnabled = await this.#configManager.isOpencodeEnabled();
+    this.#currentModel = await this.#configManager.getModel();
 
     if (this.#opencodeUrl || this.#opencodeEnabled) {
       // Pre-warm the OpenCode server in background
@@ -95,6 +97,7 @@ export class AiSource implements Source {
         signal: this.#abortController.signal,
         config: {
           permission: { external_directory: "allow" },
+          model: this.#currentModel,
         },
       });
       this.#opencodeInstance = opencode;
@@ -440,6 +443,26 @@ export class AiSource implements Source {
 
   hasConversation(): boolean {
     return !!this.#sessionId;
+  }
+
+  async setModel(model: string): Promise<boolean> {
+    try {
+      this.#currentModel = model;
+      await this.#configManager.setModel(model);
+
+      // Reset existing connection to use new model on next request
+      await this.destroy();
+
+      // Clear session so we start fresh with the new model
+      this.clearConversation();
+
+      // Pre-warm with the new model
+      void this.#warmupOpencode();
+      return true;
+    } catch (e) {
+      console.error("[AI/OpenCode] Failed to set model:", e);
+      return false;
+    }
   }
 
   async destroy(): Promise<void> {

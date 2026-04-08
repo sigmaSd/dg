@@ -19,6 +19,10 @@ export class PluginLoader {
   #plugins: Source[] = [];
   #configManager = new ConfigManager();
 
+  get configManager() {
+    return this.#configManager;
+  }
+
   async loadPlugins(window?: AdwApplicationWindow): Promise<Source[]> {
     this.#plugins = [];
 
