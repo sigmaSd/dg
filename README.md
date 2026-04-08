@@ -34,6 +34,8 @@ Windows version** that bundles the GTK runtime.
   when you need it.
 - **Built-in Tools**: Comes with an application launcher, calculator, Firefox
   history search, and a built-in plugin store to discover community extensions.
+- **AI Assistant** (optional): Integrated OpenCode AI to answer questions
+  directly from the launcher.
 
 ## Getting Started
 
@@ -52,6 +54,56 @@ deno task start
 
 Use `Ctrl+Q` to quit the application completely, or `Escape` to hide it to the
 background.
+
+## AI Assistant
+
+DG includes an AI assistant powered by OpenCode. This feature is completely
+optional and opt-in.
+
+### Prerequisites
+
+1. **Install OpenCode** (required for AI features):
+
+   ```bash
+   deno install -gfA 'npm:opencode-ai' --allow-scripts=npm:opencode-ai
+   ```
+
+2. **Enable AI** in your config at `~/.config/dg/plugins.json`:
+
+   ```json
+   {
+     "opencode": {
+       "enabled": true,
+       "tools": {
+         "read": true,
+         "grep": true,
+         "glob": true
+       }
+     }
+   }
+   ```
+
+   The `tools` section controls which AI capabilities are enabled:
+   - `read`, `grep`, `glob` - **Enabled by default** (read-only operations)
+   - `edit`, `write`, `bash`, `task` - **Disabled by default** (require explicit
+     enable)
+   - `external_directory` - Controls access to external directories ("allow",
+     "deny", "ask")
+
+### Usage
+
+1. Type `ai <your question>` and press Enter to get an AI response.
+
+2. **Include clipboard context**: Use `$clipboard` or `$cb` in your query to
+   include the current clipboard content in the AI's context:
+
+   ```
+   ai explain this $clipboard
+   ```
+
+3. **Switch models**: Press `Ctrl+M` to open the model selector. You can search
+   for models using fuzzy search and filter between free and paid models. Models
+   are fetched from [models.dev](https://models.dev).
 
 ## Plugin Development
 

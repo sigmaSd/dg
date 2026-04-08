@@ -24,8 +24,6 @@ export class AiSource implements Source {
   description = "Ask AI questions via OpenCode";
   trigger = "ai";
   #configManager = new ConfigManager();
-  #opencodeUrl?: string;
-  #opencodeEnabled?: boolean;
   #opencodeInstance?: Awaited<ReturnType<typeof createOpencode>>;
   #opencodeClient?: Awaited<ReturnType<typeof createOpencode>>["client"];
   #createdOwnServer = false;
@@ -35,15 +33,27 @@ export class AiSource implements Source {
   #opencodePort?: number;
   #initializingOpencode: Promise<OpencodeClient> | null = null;
   #currentModel?: string;
+  #opencodeConfig?: {
+    enabled?: boolean;
+    tools?: {
+      bash?: boolean;
+      read?: boolean;
+      edit?: boolean;
+      write?: boolean;
+      grep?: boolean;
+      glob?: boolean;
+      task?: boolean;
+      external_directory?: "allow" | "deny" | "ask";
+    };
+  };
 
   constructor() {}
 
   async init(): Promise<void> {
-    this.#opencodeUrl = await this.#configManager.getOpencodeServerUrl();
-    this.#opencodeEnabled = await this.#configManager.isOpencodeEnabled();
+    this.#opencodeConfig = await this.#configManager.getOpencodeConfig();
     this.#currentModel = await this.#configManager.getModel();
 
-    if (this.#opencodeUrl || this.#opencodeEnabled) {
+    if (this.#opencodeConfig?.enabled) {
       // Pre-warm the OpenCode server in background
       void this.#warmupOpencode();
     }
@@ -72,7 +82,7 @@ export class AiSource implements Source {
 
     console.log("[AI/OpenCode] Getting OpenCode client...");
 
-    if (this.#opencodeEnabled) {
+    if (this.#opencodeConfig?.enabled) {
       // Create the initialization promise
       this.#initializingOpencode = this.#createOpencodeClient();
 
@@ -82,6 +92,40 @@ export class AiSource implements Source {
     } else {
       throw new Error("OpenCode not configured");
     }
+  }
+
+  #getPermissionConfig(): {
+    bash?: "allow" | "deny" | "ask";
+    read?: "allow" | "deny" | "ask";
+    grep?: "allow" | "deny" | "ask";
+    glob?: "allow" | "deny" | "ask";
+    edit?: "allow" | "deny" | "ask";
+    write?: "allow" | "deny" | "ask";
+    task?: "allow" | "deny" | "ask";
+    external_directory?: "allow" | "deny" | "ask";
+  } {
+    const tools = this.#opencodeConfig?.tools;
+    const defaultTools = {
+      read: true,
+      grep: true,
+      glob: true,
+      edit: false,
+      write: false,
+      bash: false,
+      task: false,
+      external_directory: "deny" as const,
+    };
+    const t = tools || defaultTools;
+    return {
+      bash: t.bash ? "allow" : "deny",
+      read: t.read ? "allow" : "deny",
+      grep: t.grep ? "allow" : "deny",
+      glob: t.glob ? "allow" : "deny",
+      edit: t.edit ? "allow" : "deny",
+      write: t.write ? "allow" : "deny",
+      task: t.task ? "allow" : "deny",
+      external_directory: t.external_directory || "deny",
+    };
   }
 
   async #createOpencodeClient(): Promise<OpencodeClient> {
@@ -96,7 +140,7 @@ export class AiSource implements Source {
         port: 0,
         signal: this.#abortController.signal,
         config: {
-          permission: { external_directory: "allow" },
+          permission: this.#getPermissionConfig(),
           model: this.#currentModel,
         },
       });
@@ -132,12 +176,13 @@ export class AiSource implements Source {
 
   // deno-lint-ignore require-await
   async search(query: string): Promise<SearchResult[]> {
-    const hasOpencode = !!this.#opencodeUrl || !!this.#opencodeEnabled;
+    const hasOpencode = this.#opencodeConfig?.enabled;
 
     if (!hasOpencode) {
       return [{
         title: "No AI Provider",
-        subtitle: "Set opencodeEnabled: true in config",
+        subtitle:
+          "Set opencode: { enabled: true, tools: { read: true } } in config",
         icon: "dialog-error",
         score: 100,
         onActivate: () => {},
@@ -226,15 +271,6 @@ export class AiSource implements Source {
       await client.session.promptAsync({
         path: { id: sessionId },
         body: {
-          tools: {
-            bash: true,
-            read: true,
-            edit: true,
-            write: true,
-            grep: true,
-            glob: true,
-            task: true,
-          },
           parts: [{ type: "text", text: fullMessage }],
         },
       });

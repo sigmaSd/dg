@@ -6,11 +6,26 @@ export interface PluginEntry {
   permissions?: PluginPermissions;
 }
 
+export interface OpencodeToolsConfig {
+  bash?: boolean;
+  read?: boolean;
+  edit?: boolean;
+  write?: boolean;
+  grep?: boolean;
+  glob?: boolean;
+  task?: boolean;
+  external_directory?: "allow" | "deny" | "ask";
+}
+
+export interface OpencodeConfig {
+  enabled?: boolean;
+  model?: string;
+  tools?: OpencodeToolsConfig;
+}
+
 export interface Config {
   plugins: PluginEntry[];
-  opencodeServerUrl?: string;
-  opencodeEnabled?: boolean;
-  model?: string;
+  opencode?: OpencodeConfig;
 }
 
 export interface CachedModel {
@@ -158,30 +173,15 @@ export class ConfigManager {
     }
   }
 
-  async getOpencodeServerUrl(): Promise<string | undefined> {
+  async getOpencodeConfig(): Promise<OpencodeConfig | undefined> {
     const config = await this.read();
-    return config.opencodeServerUrl;
+    return config.opencode;
   }
 
-  async setOpencodeServerUrl(url: string) {
+  async setOpencodeConfig(opencodeConfig: Partial<OpencodeConfig>) {
     await this.ensureConfigDir();
     const config = await this.read();
-    config.opencodeServerUrl = url;
-    await Deno.writeTextFile(
-      this.#configPath,
-      JSON.stringify(config, null, 2),
-    );
-  }
-
-  async isOpencodeEnabled(): Promise<boolean> {
-    const config = await this.read();
-    return config.opencodeEnabled ?? false;
-  }
-
-  async setOpencodeEnabled(enabled: boolean) {
-    await this.ensureConfigDir();
-    const config = await this.read();
-    config.opencodeEnabled = enabled;
+    config.opencode = { ...config.opencode, ...opencodeConfig };
     await Deno.writeTextFile(
       this.#configPath,
       JSON.stringify(config, null, 2),
@@ -190,13 +190,14 @@ export class ConfigManager {
 
   async getModel(): Promise<string> {
     const config = await this.read();
-    return config.model || "opencode/minimax-m2.5-free";
+    return config.opencode?.model || "opencode/minimax-m2.5-free";
   }
 
   async setModel(model: string) {
     await this.ensureConfigDir();
     const config = await this.read();
-    config.model = model;
+    if (!config.opencode) config.opencode = {};
+    config.opencode.model = model;
     await Deno.writeTextFile(
       this.#configPath,
       JSON.stringify(config, null, 2),
