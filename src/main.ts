@@ -328,7 +328,6 @@ class DGApp {
           this.#searchEntry?.selectRegion(3, 3);
         } else {
           void this.#activateResult(0);
-          this.#win?.setVisible(false);
         }
       }
     });
@@ -353,7 +352,6 @@ class DGApp {
         void this.#activateResult(index);
       } else if (!this.#aiMode) {
         void this.#activateResult(index);
-        this.#win?.setVisible(false);
       }
     });
     this.#scrolledWindow.setChild(this.#listBox);
@@ -1013,6 +1011,7 @@ class DGApp {
       const result = this.#currentResults[index];
       try {
         await result.onActivate();
+        this.#win?.setVisible(false);
       } catch (e) {
         console.error("Activation failed:", e);
         this.#setLoading(
