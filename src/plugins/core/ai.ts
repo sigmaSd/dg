@@ -506,24 +506,32 @@ export class AiSource implements Source {
   }
 
   async destroy(waitForPort = false): Promise<void> {
-    // Only close if we started creating the server (check abortController as we set it at start of spawn)
     if (this.#abortController) {
-      // Wait for the warmup (initialization) to complete - either success or failure
       if (waitForPort && this.#initializingOpencode) {
         try {
           await this.#initializingOpencode;
         } catch {
-          // Warmup failed, continue with cleanup
+          // ignore
         }
         this.#initializingOpencode = null;
       }
 
-      // Now try graceful close via server.close()
+      if (this.#opencodePort) {
+        try {
+          const fuserCmd = new Deno.Command("fuser", {
+            args: ["-k", `${this.#opencodePort}/tcp`],
+          });
+          await fuserCmd.output();
+        } catch {
+          // ignore
+        }
+      }
+
       if (this.#opencodeInstance) {
         try {
           this.#opencodeInstance.server.close();
         } catch {
-          // Ignore close errors
+          // ignore
         }
       }
     }
