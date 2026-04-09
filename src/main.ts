@@ -149,19 +149,28 @@ class DGApp {
     // Quit Action (Ctrl+Q)
     const quitAction = new SimpleAction("quit");
     quitAction.connect("activate", async () => {
-      console.log("Quit action activated");
-
       // Clear AI conversation
       this.#aiSource?.clearConversation();
+
+      // Show feedback while waiting for cleanup
+      this.#setLoading(true, "Closing OpenCode...");
 
       // Cleanup all plugins
       for (const plugin of this.#plugins) {
         try {
-          await plugin.destroy?.();
+          if (plugin.id === "ai") {
+            // AI plugin needs to wait for port
+            await (plugin as { destroy?(waitForPort: boolean): Promise<void> })
+              .destroy?.(true);
+          } else {
+            await plugin.destroy?.();
+          }
         } catch (e) {
           console.error(`Error cleaning up plugin ${plugin.id}:`, e);
         }
       }
+
+      this.#setLoading(false);
 
       if (this.#win) {
         this.#win.destroy();

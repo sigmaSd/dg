@@ -505,41 +505,30 @@ export class AiSource implements Source {
     }
   }
 
-  async destroy(): Promise<void> {
-    console.log("[AI/OpenCode] Destroying...", {
-      hasInstance: !!this.#opencodeInstance,
-      createdOwnServer: this.#createdOwnServer,
-      sessionId: this.#sessionId,
-      hasAbortController: !!this.#abortController,
-      port: this.#opencodePort,
-    });
-
-    // Only close if we created the server ourselves
-    if (this.#createdOwnServer) {
-      // First try graceful shutdown via abort signal
-      if (this.#abortController) {
-        console.log("[AI/OpenCode] Aborting signal...");
-        this.#abortController.abort();
-        this.#abortController = undefined;
+  async destroy(waitForPort = false): Promise<void> {
+    // Only close if we started creating the server (check abortController as we set it at start of spawn)
+    if (this.#abortController) {
+      // Wait for the warmup (initialization) to complete - either success or failure
+      if (waitForPort && this.#initializingOpencode) {
+        try {
+          await this.#initializingOpencode;
+        } catch {
+          // Warmup failed, continue with cleanup
+        }
+        this.#initializingOpencode = null;
       }
 
-      // Try server.close()
+      // Now try graceful close via server.close()
       if (this.#opencodeInstance) {
-        console.log("[AI/OpenCode] Calling server.close()...");
         try {
           this.#opencodeInstance.server.close();
-          console.log("[AI/OpenCode] server.close() returned");
-        } catch (e) {
-          console.error("[AI/OpenCode] Error closing server:", e);
+        } catch {
+          // Ignore close errors
         }
       }
 
       // Force kill by port as backup
       if (this.#opencodePort) {
-        console.log(
-          "[AI/OpenCode] Force killing process on port:",
-          this.#opencodePort,
-        );
         try {
           const killCmd = new Deno.Command("fuser", {
             args: ["-k", `${this.#opencodePort}/tcp`],
@@ -547,13 +536,10 @@ export class AiSource implements Source {
             stderr: "piped",
           });
           await killCmd.output();
-          console.log("[AI/OpenCode] Force kill sent");
-        } catch (e) {
-          console.log("[AI/OpenCode] Force kill error:", e);
+        } catch {
+          // Ignore kill errors
         }
       }
-    } else {
-      console.log("[AI/OpenCode] Did not create server, not closing");
     }
 
     this.#sessionId = undefined;
@@ -561,6 +547,6 @@ export class AiSource implements Source {
     this.#opencodeInstance = undefined;
     this.#createdOwnServer = false;
     this.#opencodePort = undefined;
-    console.log("[AI/OpenCode] Destroy complete");
+    this.#abortController = undefined;
   }
 }
