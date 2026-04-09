@@ -3,15 +3,14 @@
   "specifiers": {
     "jsr:@sigma/deno-compat@0.23.0": "0.23.0",
     "jsr:@sigmasd/dg-plugin-emoji@0.4.0": "0.4.0",
-    "jsr:@sigmasd/dg-plugin-prompts@0.1.1": "0.1.1",
-    "jsr:@sigmasd/dg-plugin-prompts@0.1.2": "0.1.2",
-    "jsr:@sigmasd/dg-plugin-scripts@0.2.0": "0.2.0",
-    "jsr:@sigmasd/gtk@0.60.0": "0.60.0",
+    "jsr:@sigmasd/gtk@0.62.1": "0.62.1",
     "jsr:@std/assert@^1.0.19": "1.0.19",
+    "jsr:@std/fs@1.0.23": "1.0.23",
     "jsr:@std/internal@^1.0.12": "1.0.12",
     "jsr:@std/path@^1.1.4": "1.1.4",
     "npm:@google/gemini-cli@0.36.0": "0.36.0",
-    "npm:@opencode-ai/sdk@1.3.13": "1.3.13",
+    "npm:@google/gemini-cli@0.37.1": "0.37.1",
+    "npm:@opencode-ai/sdk@1.4.2": "1.4.2",
     "npm:emojilib@^4.0.2": "4.0.2",
     "npm:fzf@~0.5.2": "0.5.2",
     "npm:opencode-ai@*": "1.3.13"
@@ -26,26 +25,8 @@
         "npm:emojilib"
       ]
     },
-    "@sigmasd/dg-plugin-prompts@0.1.1": {
-      "integrity": "a5503b433d378c2a9504423566078734002fd18cd60a0221b84eaaaa536fc4b1",
-      "dependencies": [
-        "jsr:@std/path"
-      ]
-    },
-    "@sigmasd/dg-plugin-prompts@0.1.2": {
-      "integrity": "3ad6a3342167b6b3a8f2ecd166265779c7c89c4475952aa22d880d2d7b89ce41",
-      "dependencies": [
-        "jsr:@std/path"
-      ]
-    },
-    "@sigmasd/dg-plugin-scripts@0.2.0": {
-      "integrity": "9d4366a337b6eb3373053009046cb4494a9caca960fa73e7e8fb1c565e52c448",
-      "dependencies": [
-        "jsr:@std/path"
-      ]
-    },
-    "@sigmasd/gtk@0.60.0": {
-      "integrity": "4e1303cab2dfa2d4108d9c89a052a24ce9ac5813881b99e78cfe7cf92be19742",
+    "@sigmasd/gtk@0.62.1": {
+      "integrity": "16add11ee271fe55ad73be4447aec6522e11bb7ef2b78cbfcf8123285f057c7d",
       "dependencies": [
         "jsr:@sigma/deno-compat"
       ]
@@ -54,6 +35,13 @@
       "integrity": "eaada96ee120cb980bc47e040f82814d786fe8162ecc53c91d8df60b8755991e",
       "dependencies": [
         "jsr:@std/internal"
+      ]
+    },
+    "@std/fs@1.0.23": {
+      "integrity": "3ecbae4ce4fee03b180fa710caff36bb5adb66631c46a6460aaad49515565a37",
+      "dependencies": [
+        "jsr:@std/internal",
+        "jsr:@std/path"
       ]
     },
     "@std/internal@1.0.12": {
@@ -69,6 +57,20 @@
   "npm": {
     "@google/gemini-cli@0.36.0": {
       "integrity": "sha512-/5DeGPJhqDr/JoPgSfjCj+LcmuyPB1Fwrodpw1MaeK4RG/8xSME+bwg8ar1KCuQMCrQiI3UFUhan7jQHazMwTQ==",
+      "optionalDependencies": [
+        "@lydell/node-pty",
+        "@lydell/node-pty-darwin-arm64",
+        "@lydell/node-pty-darwin-x64",
+        "@lydell/node-pty-linux-x64",
+        "@lydell/node-pty-win32-arm64",
+        "@lydell/node-pty-win32-x64",
+        "keytar",
+        "node-pty"
+      ],
+      "bin": true
+    },
+    "@google/gemini-cli@0.37.1": {
+      "integrity": "sha512-F9koIXd9ZX1yu2MPyMvnwbrdehmPIPqctYI2dy3eS6EKqzg8V83LOvbApGBqrIKec1z2skfnEbC9C6sDNkcojw==",
       "optionalDependencies": [
         "@lydell/node-pty",
         "@lydell/node-pty-darwin-arm64",
@@ -122,8 +124,11 @@
         "@lydell/node-pty-win32-x64"
       ]
     },
-    "@opencode-ai/sdk@1.3.13": {
-      "integrity": "sha512-/M6HlNnba+xf1EId6qFb2tG0cvq0db3PCQDug1glrf8wYOU57LYNF8WvHX9zoDKPTMv0F+O4pcP/8J+WvDaxHA=="
+    "@opencode-ai/sdk@1.4.2": {
+      "integrity": "sha512-JyF6Uk1zy1gG/EFPigTi3IwabnIDzdfX7NukLzAhABXFP/nSnYCSmMB91F1Cqgr9RURe9hs4ZWRLjWp2ta66JA==",
+      "dependencies": [
+        "cross-spawn"
+      ]
     },
     "base64-js@1.5.1": {
       "integrity": "sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA=="
@@ -145,6 +150,14 @@
     },
     "chownr@1.1.4": {
       "integrity": "sha512-jJ0bqzaylmJtVnNgzTeSOs8DPavpbYgEr/b0YL8/2GO3xJEhInFmhKMUnEJQjZumK7KXGFhUy89PrsJWlakBVg=="
+    },
+    "cross-spawn@7.0.6": {
+      "integrity": "sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==",
+      "dependencies": [
+        "path-key",
+        "shebang-command",
+        "which"
+      ]
     },
     "decompress-response@6.0.0": {
       "integrity": "sha512-aW35yZM6Bb/4oJlZncMH2LCoZtJXTRxES17vE3hoRiowU2kWHaJKFkSBDnDR+cm9J+9QhXmREyIfv0pji9ejCQ==",
@@ -187,6 +200,9 @@
     },
     "ini@1.3.8": {
       "integrity": "sha512-JV/yugV2uzW5iMRSiZAyDtQd+nxtUnjeLt0acNdw98kKLrvuRVyB80tsREOE7yvGVgalhZ6RNXCmEHkUKBKxew=="
+    },
+    "isexe@2.0.0": {
+      "integrity": "sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw=="
     },
     "keytar@7.9.0": {
       "integrity": "sha512-VPD8mtVtm5JNtA2AErl6Chp06JBfy7diFQ7TQQhdpWOl6MrCRB+eRbvAZUsbGQS9kiMq0coJsy0W0vHpDCkWsQ==",
@@ -312,6 +328,9 @@
       "os": ["win32"],
       "cpu": ["x64"]
     },
+    "path-key@3.1.1": {
+      "integrity": "sha512-ojmeN0qd+y0jszEtoY48r0Peq5dwMEkIlCOu6Q5f41lfkswXuKtYrhgoTpLnyIcHm24Uhqx+5Tqm2InSwLhE6Q=="
+    },
     "prebuild-install@7.1.3": {
       "integrity": "sha512-8Mf2cbV7x1cXPUILADGI3wuhfqWvtiLA1iclTDbFRZkgRQS0NqsPZphna9V+HyTEadheuPmjaJMsbzKQFOzLug==",
       "dependencies": [
@@ -363,6 +382,15 @@
       "integrity": "sha512-vFKC2IEtQnVhpT78h1Yp8wzwrf8CM+MzKMHGJZfBtzhZNycRFnXsHk6E5TxIkkMsgNS7mdX3AGB7x2QM2di4lA==",
       "bin": true
     },
+    "shebang-command@2.0.0": {
+      "integrity": "sha512-kHxr2zZpYtdmrN1qDjrrX/Z1rR1kG8Dx+gkpK1G4eXmvXswmcE1hTWBWYUzlraYw1/yZp6YuDY77YtvbN0dmDA==",
+      "dependencies": [
+        "shebang-regex"
+      ]
+    },
+    "shebang-regex@3.0.0": {
+      "integrity": "sha512-7++dFhtcx3353uBaq8DDR4NuxBetBzC7ZQOhmTQInHEd6bSrXdiEyzCvG07Z44UYdLShWUyXt5M/yhz8ekcb1A=="
+    },
     "simple-concat@1.0.1": {
       "integrity": "sha512-cSFtAPtRhljv69IK0hTVZQ+OfE9nePi/rtJmw5UjHeVyVroEqJXP1sFztKUy1qU+xvz3u/sfYJLa947b7nAN2Q=="
     },
@@ -411,16 +439,24 @@
     "util-deprecate@1.0.2": {
       "integrity": "sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw=="
     },
+    "which@2.0.2": {
+      "integrity": "sha512-BLI3Tl1TW3Pvl70l3yq3Y64i+awpwXqsGBYWkkqMtnbXgrMD+yj7rhW0kuEDxzJaYXGjEW5ogapKNMEKNMjibA==",
+      "dependencies": [
+        "isexe"
+      ],
+      "bin": true
+    },
     "wrappy@1.0.2": {
       "integrity": "sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ=="
     }
   },
   "workspace": {
     "dependencies": [
-      "jsr:@sigmasd/gtk@0.60.0",
+      "jsr:@sigmasd/gtk@0.62.1",
       "jsr:@std/assert@^1.0.19",
+      "jsr:@std/fs@1.0.23",
       "jsr:@std/path@^1.1.4",
-      "npm:@opencode-ai/sdk@1.3.13",
+      "npm:@opencode-ai/sdk@1.4.2",
       "npm:fzf@~0.5.2"
     ]
   }
