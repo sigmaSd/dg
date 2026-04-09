@@ -16,11 +16,11 @@ import {
   ListBoxRow,
   Orientation,
   ScrolledWindow,
-  Spinner,
 } from "@sigmasd/gtk/gtk4";
 import {
   AdwApplicationWindow,
   MessageDialog,
+  Spinner,
   ToolbarView,
 } from "@sigmasd/gtk/adw";
 import { EventLoop } from "@sigmasd/gtk/eventloop";
@@ -109,8 +109,7 @@ class DGApp {
 
   #setLoading(loading: boolean, message?: string) {
     if (this.#spinner) {
-      if (loading) this.#spinner.start();
-      else this.#spinner.stop();
+      this.#spinner.setVisible(loading);
     }
     if (this.#statusLabel) {
       this.#statusLabel.setText(message || "");
@@ -637,7 +636,7 @@ class DGApp {
           this.#aiMessages.push({ role: "assistant", content: this.#aiText });
           this.#aiText = "";
         }
-        if (this.#spinner) this.#spinner.stop();
+        if (this.#spinner) this.#spinner.setVisible(false);
         if (this.#statusLabel) this.#statusLabel.setText("");
         this.#showModelInStatus();
         if (this.#searchEntry) {
