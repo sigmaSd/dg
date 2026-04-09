@@ -43,7 +43,7 @@ export class AiSource implements Source {
       grep?: boolean;
       glob?: boolean;
       task?: boolean;
-      external_directory?: "allow" | "deny" | "ask";
+      external_directory?: boolean;
     };
   };
 
@@ -113,7 +113,7 @@ export class AiSource implements Source {
       write: false,
       bash: false,
       task: false,
-      external_directory: "deny" as const,
+      external_directory: false,
     };
     const t = tools || defaultTools;
     return {
@@ -124,7 +124,7 @@ export class AiSource implements Source {
       edit: t.edit ? "allow" : "deny",
       write: t.write ? "allow" : "deny",
       task: t.task ? "allow" : "deny",
-      external_directory: t.external_directory || "deny",
+      external_directory: t.external_directory ? "allow" : "deny",
     };
   }
 
@@ -524,20 +524,6 @@ export class AiSource implements Source {
           this.#opencodeInstance.server.close();
         } catch {
           // Ignore close errors
-        }
-      }
-
-      // Force kill by port as backup
-      if (this.#opencodePort) {
-        try {
-          const killCmd = new Deno.Command("fuser", {
-            args: ["-k", `${this.#opencodePort}/tcp`],
-            stdout: "piped",
-            stderr: "piped",
-          });
-          await killCmd.output();
-        } catch {
-          // Ignore kill errors
         }
       }
     }

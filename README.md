@@ -87,8 +87,7 @@ optional and opt-in.
    - `read`, `grep`, `glob` - **Enabled by default** (read-only operations)
    - `edit`, `write`, `bash`, `task` - **Disabled by default** (require explicit
      enable)
-   - `external_directory` - Controls access to external directories ("allow",
-     "deny", "ask")
+   - `external_directory` - Controls access to external directories
 
 ### Usage
 

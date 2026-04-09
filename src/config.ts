@@ -14,7 +14,7 @@ export interface OpencodeToolsConfig {
   grep?: boolean;
   glob?: boolean;
   task?: boolean;
-  external_directory?: "allow" | "deny" | "ask";
+  external_directory?: boolean;
 }
 
 export interface OpencodeConfig {
