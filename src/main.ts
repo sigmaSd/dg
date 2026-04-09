@@ -69,6 +69,8 @@ class DGApp {
   #fuse: Fzf<CachedModel[]> | null = null;
   #modelFilterFree = false;
   #savedAiMode = false;
+  #savedAiMessages: { role: "user" | "assistant"; content: string }[] = [];
+  #savedAiText = "";
 
   constructor() {
     this.#app = new Application(APP_ID, APP_FLAGS);
@@ -84,7 +86,39 @@ class DGApp {
       this.#win?.present();
       // Focus the entry and select the text
       this.#searchEntry?.grabFocus();
-      this.#searchEntry?.selectRegion(0, -1);
+      // Restore AI state if it was saved
+      if (this.#savedAiMessages.length > 0 || this.#savedAiText) {
+        this.#aiMode = true;
+        this.#aiMessages = [...this.#savedAiMessages];
+        this.#aiText = this.#savedAiText;
+        this.#updateAiPlaceholder();
+        this.#showModelInStatus();
+        // Clear saved state
+        this.#savedAiMessages = [];
+        this.#savedAiText = "";
+        // Re-render AI conversation
+        if (this.#listBox) {
+          let child = this.#listBox.getFirstChild();
+          while (child) {
+            const next = this.#listBox.getNextSibling(child);
+            this.#listBox.remove(child);
+            child = next;
+          }
+        }
+        for (const msg of this.#aiMessages) {
+          this.#updateAiDisplay(msg.role, msg.content);
+        }
+        if (this.#aiText) {
+          this.#updateAiDisplay("assistant");
+        }
+        // Set entry to "ai " with cursor at end
+        if (this.#searchEntry) {
+          this.#searchEntry.setText("ai ");
+          this.#searchEntry.selectRegion(3, 3);
+        }
+      } else {
+        this.#searchEntry?.selectRegion(0, -1);
+      }
     });
   }
 
@@ -189,16 +223,14 @@ class DGApp {
         this.#exitModelMode();
         return;
       }
+      // In AI mode, just hide - preserve conversation state
       if (this.#aiMode) {
-        this.#exitAiMode();
-        this.#setLoading(false);
-        if (this.#searchEntry) {
-          this.#searchEntry.setText("");
-        }
-        this.#updateSearch("");
-      } else {
+        this.#savedAiMessages = [...this.#aiMessages];
+        this.#savedAiText = this.#aiText;
         this.#win?.setVisible(false);
+        return;
       }
+      this.#win?.setVisible(false);
     });
     this.#win.addAction(hideAction);
     this.#app.setAccelsForAction("win.hide", ["Escape"]);
