@@ -61,16 +61,14 @@ class DGApp {
   #aiMode = false;
   #aiText = "";
   #aiMessages: { role: "user" | "assistant"; content: string }[] = [];
-  #aiAbortController: AbortController | null = null;
-  #aiFollowupTimer: number | null = null;
 
   #modelMode = false;
+  #modelFilterFree = false;
   #modelList: CachedModel[] = [];
   #fuse: Fzf<CachedModel[]> | null = null;
-  #modelFilterFree = false;
+
+  #aiAbortController?: AbortController;
   #savedAiMode = false;
-  #savedAiMessages: { role: "user" | "assistant"; content: string }[] = [];
-  #savedAiText = "";
 
   constructor() {
     this.#app = new Application(APP_ID, APP_FLAGS);
@@ -86,17 +84,11 @@ class DGApp {
       this.#win?.present();
       // Focus the entry and select the text
       this.#searchEntry?.grabFocus();
-      // Restore AI state if it was saved
-      if (this.#savedAiMessages.length > 0 || this.#savedAiText) {
-        this.#aiMode = true;
-        this.#aiMessages = [...this.#savedAiMessages];
-        this.#aiText = this.#savedAiText;
+      // Restore AI state if we are in AI mode
+      if (this.#aiMode) {
         this.#updateAiPlaceholder();
         this.#showModelInStatus();
-        // Clear saved state
-        this.#savedAiMessages = [];
-        this.#savedAiText = "";
-        // Re-render AI conversation
+        // Re-render AI conversation (last one only)
         if (this.#listBox) {
           let child = this.#listBox.getFirstChild();
           while (child) {
@@ -105,8 +97,14 @@ class DGApp {
             child = next;
           }
         }
-        for (const msg of this.#aiMessages) {
-          this.#updateAiDisplay(msg.role, msg.content);
+        const lastUserIndex = this.#aiMessages.map((m) => m.role).lastIndexOf(
+          "user",
+        );
+        if (lastUserIndex !== -1) {
+          const lastConversation = this.#aiMessages.slice(lastUserIndex);
+          for (const msg of lastConversation) {
+            this.#updateAiDisplay(msg.role, msg.content);
+          }
         }
         if (this.#aiText) {
           this.#updateAiDisplay("assistant");
@@ -225,8 +223,6 @@ class DGApp {
       }
       // In AI mode, just hide - preserve conversation state
       if (this.#aiMode) {
-        this.#savedAiMessages = [...this.#aiMessages];
-        this.#savedAiText = this.#aiText;
         this.#win?.setVisible(false);
         return;
       }
@@ -322,6 +318,23 @@ class DGApp {
         if (query.startsWith("ai ") && this.#aiSource) {
           console.log("[Main] Triggering AI");
           const processedQuery = query.slice(3).trim();
+          if (processedQuery === "/clear") {
+            this.#aiMessages = [];
+            this.#aiText = "";
+            this.#statusLabel?.setText("Conversation cleared");
+            this.#searchEntry?.setText("ai ");
+            this.#searchEntry?.selectRegion(3, 3);
+            // Clear display
+            if (this.#listBox) {
+              let child = this.#listBox.getFirstChild();
+              while (child) {
+                const next = this.#listBox.getNextSibling(child);
+                this.#listBox.remove(child);
+                child = next;
+              }
+            }
+            return;
+          }
           void this.#enterAiMode(processedQuery);
           // Keep "ai " prefix for follow-ups, move cursor to end
           this.#searchEntry?.setText("ai ");
@@ -633,6 +646,7 @@ class DGApp {
     }
 
     // Show initial user question
+    this.#aiMessages.push({ role: "user", content: query });
     this.#updateAiDisplay("user", query);
 
     // Start streaming
@@ -813,7 +827,7 @@ class DGApp {
     this.#aiMessages = [];
     if (this.#aiAbortController) {
       this.#aiAbortController.abort();
-      this.#aiAbortController = null;
+      this.#aiAbortController = undefined;
     }
     if (this.#aiSource) {
       this.#aiSource.clearConversation();
