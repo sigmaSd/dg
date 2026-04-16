@@ -75,6 +75,14 @@ class DGApp {
     this.#eventLoop = new EventLoop({ pollInterval: 16 });
     this.#loader = new PluginLoader();
 
+    // Clean up on signal termination (Ctrl+C, kill, etc.)
+    Deno.addSignalListener("SIGINT", async () => {
+      await this.#cleanupAndExit();
+    });
+    Deno.addSignalListener("SIGTERM", async () => {
+      await this.#cleanupAndExit();
+    });
+
     this.#app.onActivate(() => {
       if (!this.#win) {
         this.#buildUI();
@@ -174,42 +182,42 @@ class DGApp {
     }
   }
 
+  async #cleanupAndExit(): Promise<void> {
+    this.#aiSource?.clearConversation();
+
+    this.#setLoading(true, "Closing...");
+
+    for (const plugin of this.#plugins) {
+      try {
+        if (plugin.id === "ai") {
+          await (plugin as { destroy?(waitForPort: boolean): Promise<void> })
+            .destroy?.(true);
+        } else {
+          await plugin.destroy?.();
+        }
+      } catch (e) {
+        console.error(`Error cleaning up plugin ${plugin.id}:`, e);
+      }
+    }
+
+    this.#setLoading(false);
+
+    if (this.#win) {
+      this.#win.destroy();
+      this.#win = undefined;
+    }
+    this.#eventLoop.stop();
+    this.#app.quit();
+    Deno.exit(0);
+  }
+
   #setupActions() {
     if (!this.#win) return;
 
     // Quit Action (Ctrl+Q)
     const quitAction = new SimpleAction("quit");
     quitAction.connect("activate", async () => {
-      // Clear AI conversation
-      this.#aiSource?.clearConversation();
-
-      // Show feedback while waiting for cleanup
-      this.#setLoading(true, "Closing OpenCode...");
-
-      // Cleanup all plugins
-      for (const plugin of this.#plugins) {
-        try {
-          if (plugin.id === "ai") {
-            // AI plugin needs to wait for port
-            await (plugin as { destroy?(waitForPort: boolean): Promise<void> })
-              .destroy?.(true);
-          } else {
-            await plugin.destroy?.();
-          }
-        } catch (e) {
-          console.error(`Error cleaning up plugin ${plugin.id}:`, e);
-        }
-      }
-
-      this.#setLoading(false);
-
-      if (this.#win) {
-        this.#win.destroy();
-        this.#win = undefined;
-      }
-      this.#eventLoop.stop();
-      this.#app.quit();
-      Deno.exit(0);
+      await this.#cleanupAndExit();
     });
     this.#win.addAction(quitAction);
     this.#app.setAccelsForAction("win.quit", ["<Control>q"]);

@@ -12,6 +12,9 @@ export class FirefoxSource implements Source {
   #tmpPath?: string;
 
   async init(): Promise<void> {
+    // Clean up any previous init before re-initializing
+    await this.destroy();
+
     const home = Deno.env.get("HOME");
     if (!home) return;
 
@@ -139,12 +142,25 @@ export class FirefoxSource implements Source {
   }
 
   async destroy(): Promise<void> {
+    // Close database first (releases file handle)
+    if (this.#db) {
+      try {
+        this.#db.close();
+      } catch {
+        // Ignore
+      }
+      this.#db = undefined;
+    }
+
+    // Then remove temp file
     if (this.#tmpPath) {
       try {
         await Deno.remove(this.#tmpPath);
       } catch {
         // Ignore
       }
+      this.#tmpPath = undefined;
+      this.#dbPath = undefined;
     }
   }
 }
