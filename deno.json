@@ -9,7 +9,7 @@
     "./worker/host": "./src/plugins/worker/host.ts"
   },
   "tasks": {
-    "start": "deno run --allow-all --unstable-worker-options --no-prompt src/main.ts",
+    "start": "deno run --allow-all --unstable-kv --unstable-worker-options --no-prompt src/main.ts",
     "build": "deno run --allow-all build.ts"
   },
   "imports": {
