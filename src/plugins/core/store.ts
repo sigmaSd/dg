@@ -12,7 +12,7 @@ export class StoreSource implements Source {
 
   #configManager = new ConfigManager();
   #installedPlugins: string[] = [];
-  #debounceTimer: number | null = null;
+  #debounceTimer: ReturnType<typeof setTimeout> | null = null;
   #abortController: AbortController | null = null;
   #lastResults: SearchResult[] = [];
   #window?: AdwApplicationWindow;

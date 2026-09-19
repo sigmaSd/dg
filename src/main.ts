@@ -57,7 +57,7 @@ class DGApp {
   #aiSource?: AiSource;
   #currentResults: SearchResult[] = [];
   #latestSearchId = 0;
-  #debounceTimer: number | null = null;
+  #debounceTimer: ReturnType<typeof setTimeout> | null = null;
   #aiMode = false;
   #aiText = "";
   #aiMessages: { role: "user" | "assistant"; content: string }[] = [];
