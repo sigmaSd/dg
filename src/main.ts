@@ -8,9 +8,9 @@ import {
   Align,
   Application,
   Box,
+  Button,
   Entry,
   HeaderBar,
-  Image,
   Label,
   ListBox,
   ListBoxRow,
@@ -27,10 +27,16 @@ import { EventLoop } from "@sigmasd/gtk/eventloop";
 import type { SearchResult, Source } from "./plugins/interface.ts";
 import { PluginLoader } from "./loader.ts";
 import { SimpleAction } from "@sigmasd/gtk/gio";
-import type { AiSource } from "./plugins/core/ai.ts";
+import { AiSource } from "./plugins/core/ai.ts";
+import { isPathQuery } from "./plugins/core/paths.ts";
 import { readClipboard } from "./utils/clipboard.ts";
 import { Fzf } from "fzf";
-import type { CachedModel } from "./config.ts";
+import type { CachedModel, OpencodeConfig } from "./config.ts";
+import { createIcon } from "./ui/choice-picker.ts";
+import { createGtkDesktopLaunch } from "./ui/desktop-launch.ts";
+import { createPathPreferences } from "./ui/path-preferences.ts";
+import { openPreferences } from "./ui/preferences.ts";
+import { createAiPreferences } from "./ui/ai-preferences.ts";
 
 const APP_ID = "io.github.sigmasd.dg";
 const APP_FLAGS = 0;
@@ -46,16 +52,22 @@ class DGApp {
   #eventLoop: EventLoop;
   #listBox?: ListBox;
   #searchEntry?: Entry;
+  #searchMessage?: Label;
   #statusLabel?: Label;
   #spinner?: Spinner;
   #bottomBox?: Box;
   #modelLabel?: Label;
   #scrolledWindow?: ScrolledWindow;
+  #preferences?: ReturnType<typeof openPreferences>;
+  #openingPreferences = false;
+  #preferencesAction?: SimpleAction;
+  #modelActions: SimpleAction[] = [];
 
   #loader: PluginLoader;
   #plugins: Source[] = [];
   #aiSource?: AiSource;
   #currentResults: SearchResult[] = [];
+  #currentResultsQuery?: string;
   #latestSearchId = 0;
   #debounceTimer: ReturnType<typeof setTimeout> | null = null;
   #aiMode = false;
@@ -65,6 +77,7 @@ class DGApp {
   #modelMode = false;
   #modelFilterFree = false;
   #modelList: CachedModel[] = [];
+  #modelFetch?: AbortController;
   #fuse: Fzf<CachedModel[]> | null = null;
 
   #aiAbortController?: AbortController;
@@ -73,7 +86,10 @@ class DGApp {
   constructor() {
     this.#app = new Application(APP_ID, APP_FLAGS);
     this.#eventLoop = new EventLoop({ pollInterval: 16 });
-    this.#loader = new PluginLoader();
+    this.#loader = new PluginLoader(
+      createGtkDesktopLaunch(() => this.#win?.getDisplay().ptr),
+      () => this.#refreshPlugins(),
+    );
 
     // Clean up on signal termination (Ctrl+C, kill, etc.)
     Deno.addSignalListener("SIGINT", async () => {
@@ -84,6 +100,10 @@ class DGApp {
     });
 
     this.#app.onActivate(() => {
+      if (this.#preferences) {
+        this.#preferences.present();
+        return;
+      }
       if (!this.#win) {
         this.#buildUI();
         void this.#initPlugins();
@@ -117,11 +137,7 @@ class DGApp {
         if (this.#aiText) {
           this.#updateAiDisplay("assistant");
         }
-        // Set entry to "ai " with cursor at end
-        if (this.#searchEntry) {
-          this.#searchEntry.setText("ai ");
-          this.#searchEntry.selectRegion(3, 3);
-        }
+        this.#resetAiEntry();
       } else {
         this.#searchEntry?.selectRegion(0, -1);
       }
@@ -131,20 +147,32 @@ class DGApp {
   async #initPlugins() {
     console.log("Loading plugins...");
     this.#setLoading(true, "Loading plugins...");
-    this.#plugins = await this.#loader.loadPlugins(this.#win);
+    await this.#loader.loadPlugins(this.#win);
+    this.#preferencesAction?.setProperty("enabled", true);
+    this.#refreshPlugins();
+  }
 
-    // Get AI source reference
-    this.#aiSource = this.#plugins.find((p) => p.id === "ai") as
-      | AiSource
-      | undefined;
-
-    // Pre-warm models list
-    void this.#fetchModels();
-
-    this.#setLoading(false);
-    // Use the current text in the entry if the user already started typing
-    const currentQuery = this.#searchEntry?.getText() || "";
-    void this.#updateSearch(currentQuery);
+  #refreshPlugins() {
+    const previousAi = this.#aiSource;
+    this.#plugins = this.#loader.activeSources;
+    const ai = this.#plugins.find((source): source is AiSource =>
+      source instanceof AiSource
+    );
+    if (previousAi && !ai) {
+      this.#modelFetch?.abort();
+      this.#savedAiMode = false;
+      if (this.#modelMode) this.#exitModelMode();
+      if (this.#aiMode || this.#aiAbortController) this.#exitAiMode();
+    }
+    this.#aiSource = ai;
+    for (const action of this.#modelActions) {
+      action.setProperty("enabled", Boolean(ai));
+    }
+    if (!previousAi && ai) void this.#fetchModels();
+    if (!this.#aiMode && !this.#modelMode) {
+      this.#resetPlaceholder();
+      void this.#updateSearch(this.#searchEntry?.getText() ?? "");
+    }
   }
 
   #setLoading(loading: boolean, message?: string) {
@@ -184,17 +212,13 @@ class DGApp {
 
   async #cleanupAndExit(): Promise<void> {
     this.#aiSource?.clearConversation();
+    this.#modelFetch?.abort();
 
     this.#setLoading(true, "Closing...");
 
     for (const plugin of this.#plugins) {
       try {
-        if (plugin.id === "ai") {
-          await (plugin as { destroy?(waitForPort: boolean): Promise<void> })
-            .destroy?.(true);
-        } else {
-          await plugin.destroy?.();
-        }
+        await plugin.destroy?.();
       } catch (e) {
         console.error(`Error cleaning up plugin ${plugin.id}:`, e);
       }
@@ -202,6 +226,8 @@ class DGApp {
 
     this.#setLoading(false);
 
+    this.#preferences?.destroy();
+    this.#preferences = undefined;
     if (this.#win) {
       this.#win.destroy();
       this.#win = undefined;
@@ -213,6 +239,13 @@ class DGApp {
 
   #setupActions() {
     if (!this.#win) return;
+
+    const preferences = new SimpleAction("preferences");
+    preferences.setProperty("enabled", false);
+    preferences.connect("activate", () => void this.#showPreferences());
+    this.#win.addAction(preferences);
+    this.#app.setAccelsForAction("win.preferences", ["<Control>comma"]);
+    this.#preferencesAction = preferences;
 
     // Quit Action (Ctrl+Q)
     const quitAction = new SimpleAction("quit");
@@ -250,6 +283,7 @@ class DGApp {
       }
     });
     this.#win.addAction(modelAction);
+    modelAction.setProperty("enabled", false);
     this.#app.setAccelsForAction("win.models", ["<Control>m"]);
 
     // Free Model Picker (Ctrl+Shift+M)
@@ -263,7 +297,81 @@ class DGApp {
       }
     });
     this.#win.addAction(freeModelsAction);
+    freeModelsAction.setProperty("enabled", false);
+    this.#modelActions = [modelAction, freeModelsAction];
     this.#app.setAccelsForAction("win.free-models", ["<Control><Shift>m"]);
+  }
+
+  async #showPreferences() {
+    if (!this.#win || this.#openingPreferences) return;
+    if (this.#preferences) {
+      this.#preferences.present();
+      return;
+    }
+    this.#openingPreferences = true;
+    const paths = this.#loader.pathSource;
+    try {
+      const aiConfig = await this.#loader.configManager.getOpencodeConfig();
+      if (!this.#win) return;
+      this.#preferences = openPreferences(
+        this.#win,
+        this.#app,
+        this.#loader.controls,
+        new Map([
+          [`core:${paths.id}`, {
+            icon: "folder-symbolic",
+            create: (window, setBusy) =>
+              createPathPreferences(window, paths, setBusy, () => {
+                const query = this.#searchEntry?.getText() ?? "";
+                if (!this.#aiMode && !this.#modelMode && isPathQuery(query)) {
+                  void this.#updateSearch(query);
+                }
+              }),
+          }],
+          ["core:ai", {
+            icon: "applications-science-symbolic",
+            create: (_window, setBusy) =>
+              createAiPreferences(
+                aiConfig,
+                setBusy,
+                (settings) => this.#saveAiSettings(settings),
+              ),
+          }],
+        ]),
+        (key, enabled, window) => this.#loader.setEnabled(key, enabled, window),
+        async (key, trigger) => {
+          const prefix = this.#aiPrefix();
+          await this.#loader.setTrigger(key, trigger);
+          const text = this.#searchEntry?.getText();
+          if (this.#aiMode && key === "core:ai" && text?.startsWith(prefix)) {
+            this.#searchEntry?.setText(
+              this.#aiPrefix() + text.slice(prefix.length),
+            );
+          }
+        },
+        () => this.#preferences = undefined,
+      );
+    } catch (error) {
+      console.error("Could not open Preferences:", error);
+      this.#setLoading(false, "Could not open Preferences.");
+    } finally {
+      this.#openingPreferences = false;
+    }
+  }
+
+  async #saveAiSettings(settings: OpencodeConfig) {
+    await this.#loader.configManager.setOpencodeConfig(settings);
+    if (!this.#aiSource) return;
+    this.#aiAbortController?.abort();
+    await this.#aiSource.destroy();
+    await this.#aiSource.init();
+    if (this.#aiMode) {
+      this.#setLoading(false);
+      this.#updateAiPlaceholder();
+      this.#showModelInStatus();
+    } else if (!this.#modelMode) {
+      void this.#updateSearch(this.#searchEntry?.getText() ?? "");
+    }
   }
 
   #buildUI() {
@@ -275,6 +383,11 @@ class DGApp {
 
     const toolbarView = new ToolbarView();
     const headerBar = new HeaderBar();
+    const preferences = new Button();
+    preferences.setIconName("emblem-system-symbolic");
+    preferences.setTooltipText("Preferences (Ctrl+,)");
+    preferences.setProperty("action-name", "win.preferences");
+    headerBar.packEnd(preferences);
     toolbarView.addTopBar(headerBar);
 
     const contentBox = new Box(Orientation.VERTICAL, 0);
@@ -287,11 +400,11 @@ class DGApp {
     searchBox.setMarginEnd(12);
 
     this.#searchEntry = new Entry();
-    this.#searchEntry.setProperty(
-      "placeholder-text",
-      "Type to search apps, or 'ai <question>' for AI...",
-    );
+    this.#resetPlaceholder();
     this.#searchEntry.onChanged(() => {
+      ++this.#latestSearchId;
+      this.#currentResultsQuery = undefined;
+      this.#searchMessage?.setVisible(false);
       if (this.#debounceTimer !== null) {
         clearTimeout(this.#debounceTimer);
       }
@@ -305,33 +418,41 @@ class DGApp {
         void this.#activateResult(0);
         return;
       }
+      const query = this.#searchEntry?.getText() || "";
+      const aiPrefix = this.#aiPrefix();
+      if (isPathQuery(query)) {
+        void this.#activateSearch(query);
+        return;
+      }
+      const triggered = this.#triggeredPlugin(query);
+      if (triggered && triggered !== this.#aiSource) {
+        if (query.slice(query.indexOf(" ") + 1).trim()) {
+          void this.#activateSearch(query);
+        }
+        return;
+      }
       if (this.#aiMode && this.#aiSource) {
         // In AI mode, Enter sends follow-up
         const rawQuery = this.#searchEntry?.getText() || "";
-        // Strip "ai " prefix for follow-ups too
-        const query = rawQuery.startsWith("ai ")
-          ? rawQuery.slice(3).trim()
+        const query = rawQuery.startsWith(aiPrefix)
+          ? rawQuery.slice(aiPrefix.length).trim()
           : rawQuery;
         console.log("[Main] AI follow-up, query:", query);
         if (query.trim()) {
           void this.#enterAiMode(query);
-          // Keep "ai " prefix, clear the rest, move cursor to end
-          this.#searchEntry?.setText("ai ");
-          this.#searchEntry?.selectRegion(3, 3);
+          this.#resetAiEntry();
         }
       } else {
         // Check if it's an AI trigger
-        const query = this.#searchEntry?.getText() || "";
         console.log("[Main] Enter pressed, query:", query);
-        if (query.startsWith("ai ") && this.#aiSource) {
+        if (query.startsWith(aiPrefix) && this.#aiSource) {
           console.log("[Main] Triggering AI");
-          const processedQuery = query.slice(3).trim();
+          const processedQuery = query.slice(aiPrefix.length).trim();
           if (processedQuery === "/clear") {
             this.#aiMessages = [];
             this.#aiText = "";
             this.#statusLabel?.setText("Conversation cleared");
-            this.#searchEntry?.setText("ai ");
-            this.#searchEntry?.selectRegion(3, 3);
+            this.#resetAiEntry();
             // Clear display
             if (this.#listBox) {
               let child = this.#listBox.getFirstChild();
@@ -344,9 +465,7 @@ class DGApp {
             return;
           }
           void this.#enterAiMode(processedQuery);
-          // Keep "ai " prefix for follow-ups, move cursor to end
-          this.#searchEntry?.setText("ai ");
-          this.#searchEntry?.selectRegion(3, 3);
+          this.#resetAiEntry();
         } else {
           void this.#activateResult(0);
         }
@@ -354,6 +473,13 @@ class DGApp {
     });
 
     searchBox.append(this.#searchEntry);
+    this.#searchMessage = new Label("");
+    this.#searchMessage.setXalign(0);
+    this.#searchMessage.setWrap(true);
+    this.#searchMessage.setMarginTop(8);
+    this.#searchMessage.addCssClass("dim-label");
+    this.#searchMessage.setVisible(false);
+    searchBox.append(this.#searchMessage);
     contentBox.append(searchBox);
 
     // Results List
@@ -430,7 +556,10 @@ class DGApp {
     // Only handle non-AI searches here
     // AI mode is triggered on Enter key, not on typing
     // Don't exit AI mode when query is empty (Enter was just pressed)
-    if (query && !query.startsWith("ai") && this.#aiMode) {
+    if (
+      query && query !== this.#aiSource?.trigger &&
+      !query.startsWith(this.#aiPrefix()) && this.#aiMode
+    ) {
       // Exit AI mode if user types something else
       this.#exitAiMode();
       this.#updateSearch(query);
@@ -440,6 +569,7 @@ class DGApp {
   }
 
   #updateModelSearch(query: string) {
+    this.#currentResultsQuery = undefined;
     const searchId = ++this.#latestSearchId;
     this.#setLoading(false);
 
@@ -506,19 +636,25 @@ class DGApp {
   }
 
   async #fetchModels() {
-    const cached = await this.#loader.configManager.getCachedModels();
-    if (cached) {
-      this.#modelList = cached;
-      this.#fuse = new Fzf(this.#modelList, {
-        selector: (m: CachedModel) =>
-          `${m.name} ${m.provider}/${m.id} ${m.provider} ${m.id}`,
-      });
-    }
+    if (!this.#aiSource) return;
+    this.#modelFetch?.abort();
+    const controller = this.#modelFetch = new AbortController();
+    const { signal } = controller;
 
-    // Background fetch fresh models
     try {
-      const resp = await fetch("https://models.dev/api.json");
+      const cached = await this.#loader.configManager.getCachedModels();
+      if (signal.aborted) return;
+      if (cached) {
+        this.#modelList = cached;
+        this.#fuse = new Fzf(this.#modelList, {
+          selector: (m: CachedModel) =>
+            `${m.name} ${m.provider}/${m.id} ${m.provider} ${m.id}`,
+        });
+      }
+
+      const resp = await fetch("https://models.dev/api.json", { signal });
       const data = await resp.json();
+      if (signal.aborted) return;
       const list: CachedModel[] = [];
 
       for (const [providerId, providerData] of Object.entries(data)) {
@@ -550,9 +686,11 @@ class DGApp {
       });
 
       // Update cache
-      void this.#loader.configManager.setCachedModels(this.#modelList);
+      await this.#loader.configManager.setCachedModels(this.#modelList);
     } catch (e) {
-      console.error("Failed to fetch models:", e);
+      if (!signal.aborted) console.error("Failed to fetch models:", e);
+    } finally {
+      if (this.#modelFetch === controller) this.#modelFetch = undefined;
     }
   }
 
@@ -575,6 +713,7 @@ class DGApp {
     if (this.#modelList.length === 0) {
       this.#setLoading(true, "Fetching models...");
       await this.#fetchModels();
+      if (!this.#modelMode || !this.#aiSource) return;
       this.#setLoading(false);
     }
 
@@ -585,20 +724,14 @@ class DGApp {
     this.#modelMode = false;
     this.#aiMode = this.#savedAiMode;
 
-    if (this.#searchEntry) {
-      this.#searchEntry.setText(this.#aiMode ? "ai " : "");
-      this.#searchEntry.setProperty(
-        "placeholder-text",
-        "Type to search apps, or 'ai <question>' for AI...",
-      );
-      if (this.#aiMode) {
-        this.#searchEntry.selectRegion(3, 3);
-      }
-    }
+    if (this.#aiMode) this.#resetAiEntry();
+    else this.#searchEntry?.setText("");
 
     if (!this.#aiMode) {
+      this.#resetPlaceholder();
       this.#updateSearch("");
     } else {
+      this.#updateAiPlaceholder();
       // Restore AI display
       if (this.#listBox) {
         let child = this.#listBox.getFirstChild();
@@ -618,7 +751,8 @@ class DGApp {
   async #enterAiMode(query: string) {
     console.log("[Main] #enterAiMode called, query:", query);
 
-    if (!this.#aiSource || !query.trim()) {
+    const source = this.#aiSource;
+    if (!source || !query.trim()) {
       console.log("[Main] Early return - no source or empty query");
       return;
     }
@@ -626,16 +760,18 @@ class DGApp {
     // Update placeholder to show current model
     this.#updateAiPlaceholder();
 
-    // Replace variables like $cb/$clipboard with actual content
-    const resolvedQuery = await this.#resolveVariables(query);
-    console.log("[Main] Resolved query:", resolvedQuery);
-
     // Abort any previous request
     if (this.#aiAbortController) {
       console.log("[Main] Aborting previous request");
       this.#aiAbortController.abort();
     }
-    this.#aiAbortController = new AbortController();
+    const controller = this.#aiAbortController = new AbortController();
+    const { signal } = controller;
+
+    // Replace variables like $cb/$clipboard with actual content
+    const resolvedQuery = await this.#resolveVariables(query);
+    if (signal.aborted || source !== this.#aiSource) return;
+    console.log("[Main] Resolved query:", resolvedQuery);
 
     this.#aiMode = true;
     this.#aiText = "";
@@ -660,11 +796,13 @@ class DGApp {
     // Start streaming
     const callbacks = {
       onText: (text: string) => {
+        if (signal.aborted) return;
         console.log("[Main] onText received:", text.slice(0, 50));
         this.#aiText += text;
         this.#updateAiDisplay("assistant");
       },
       onToolRequest: (tool: string, args: Record<string, unknown>) => {
+        if (signal.aborted) return;
         console.log("[Main] onToolRequest:", tool, args);
         // Save current thinking before clearing for tool output
         if (this.#aiText) {
@@ -674,6 +812,7 @@ class DGApp {
         // Silently handle - don't show popup
       },
       onToolResult: (result: string) => {
+        if (signal.aborted) return;
         console.log("[Main] onToolResult:", result.slice(0, 50));
         this.#aiMessages.push({
           role: "assistant",
@@ -683,6 +822,7 @@ class DGApp {
         this.#updateAiDisplay("assistant", `[Tool Output] ${result}`);
       },
       onDone: () => {
+        if (signal.aborted) return;
         console.log("[Main] onDone");
         if (this.#aiText) {
           this.#aiMessages.push({ role: "assistant", content: this.#aiText });
@@ -691,13 +831,11 @@ class DGApp {
         if (this.#spinner) this.#spinner.setVisible(false);
         if (this.#statusLabel) this.#statusLabel.setText("");
         this.#showModelInStatus();
-        if (this.#searchEntry) {
-          this.#searchEntry.setText("ai ");
-          this.#searchEntry.selectRegion(3, 3);
-        }
+        this.#resetAiEntry();
         this.#updateAiPlaceholder();
       },
       onError: (error: string) => {
+        if (signal.aborted) return;
         console.log("[Main] onError:", error);
         this.#setLoading(true, `Error: ${error}`);
       },
@@ -706,9 +844,9 @@ class DGApp {
     console.log("[Main] Calling streamResponse...");
     try {
       for await (
-        const _ of this.#aiSource.streamResponse(resolvedQuery, {
+        const _ of source.streamResponse(resolvedQuery, {
           callbacks,
-          signal: this.#aiAbortController.signal,
+          signal,
         })
       ) {
         // Stream updates happen via callbacks
@@ -855,19 +993,40 @@ class DGApp {
     }
   }
 
+  #aiPrefix(): string {
+    return `${this.#aiSource?.trigger ?? "ai"} `;
+  }
+
+  #resetAiEntry() {
+    const prefix = this.#aiPrefix();
+    this.#searchEntry?.setText(prefix);
+    this.#searchEntry?.selectRegion(-1, -1);
+  }
+
   #resetPlaceholder() {
     if (this.#searchEntry) {
       this.#searchEntry.setProperty(
         "placeholder-text",
-        "Type to search apps, or 'ai <question>' for AI...",
+        this.#aiSource
+          ? `Search or type '${this.#aiPrefix()}<question>'…`
+          : "Search…",
       );
     }
   }
 
+  #triggeredPlugin(query: string): Source | undefined {
+    const separator = query.indexOf(" ");
+    if (separator < 0) return;
+    const trigger = query.slice(0, separator);
+    return this.#plugins.find((plugin) => plugin.trigger === trigger);
+  }
+
   #updateSearch(query: string) {
     const searchId = ++this.#latestSearchId;
+    const pathQuery = isPathQuery(query);
     const t0 = DEBUG ? performance.now() : 0;
     this.#setLoading(false);
+    this.#searchMessage?.setVisible(false);
 
     let results: SearchResult[] = [];
 
@@ -876,8 +1035,8 @@ class DGApp {
     const args = parts.slice(1).join(" ");
 
     // Check for AI trigger - only activate on Enter, just show placeholder here
-    if (trigger === "ai") {
-      const model = this.#aiSource?.getModel();
+    if (this.#aiSource && trigger === this.#aiSource.trigger) {
+      const model = this.#aiSource.getModel();
       const modelName = model ? model.split("/").pop() : "default";
       const hasClipboard = args.includes("$clipboard") || args.includes("$cb");
 
@@ -903,24 +1062,23 @@ class DGApp {
       }
 
       this.#currentResults = results;
+      this.#currentResultsQuery = query;
       this.#renderList(results);
       return;
     }
 
     // Check if a plugin matches the specific trigger
     // Only trigger if there is at least one space after the trigger
-    const triggeredPlugin = parts.length > 1
-      ? this.#plugins.find((p) => p.trigger === trigger)
-      : undefined;
+    const triggeredPlugin = this.#triggeredPlugin(query);
 
     const handleResults = (newResults: SearchResult[]) => {
       if (searchId !== this.#latestSearchId) return;
       results = results.concat(newResults);
-      const sorted = [...results].sort((a, b) => b.score - a.score).slice(
-        0,
-        20,
-      );
+      const sorted = pathQuery
+        ? results
+        : [...results].sort((a, b) => b.score - a.score).slice(0, 20);
       this.#currentResults = sorted;
+      this.#currentResultsQuery = query;
       const t1 = DEBUG ? performance.now() : 0;
       this.#renderList(sorted);
       if (DEBUG) {
@@ -937,14 +1095,42 @@ class DGApp {
         this.#setLoading(false);
       }
     };
+    const showMessage = (message?: string) => {
+      if (searchId === this.#latestSearchId && message) {
+        this.#searchMessage?.setText(message);
+        this.#searchMessage?.setVisible(true);
+      }
+    };
 
-    if (triggeredPlugin) {
+    handleResults([]);
+    if (pathQuery) {
+      const source = this.#loader.pathSource;
+      if (!this.#plugins.includes(source)) return;
+      return source.lookup(query).then(({ results, message }) => {
+        handleResults(results);
+        showMessage(message);
+      }).catch((error) => {
+        console.error("Path search failed:", error);
+        showMessage("Could not read this path.");
+      });
+    } else if (triggeredPlugin) {
       // Specific plugin search - fire async
       this.#setLoading(true, `Searching ${triggeredPlugin.id}...`);
-      triggeredPlugin.search(args).then((r) => {
-        handleResults(r);
-        handleDone();
-      });
+      return Promise.resolve().then(() => triggeredPlugin.search(args)).then(
+        (results) => {
+          handleResults(results);
+          if (!results.length) {
+            showMessage(
+              args.trim()
+                ? `No results from ${triggeredPlugin.name}.`
+                : `Type a query after ${trigger}.`,
+            );
+          }
+        },
+      ).catch((error) => {
+        console.error(`Search failed for ${triggeredPlugin.id}:`, error);
+        showMessage(`Could not search ${triggeredPlugin.name}.`);
+      }).finally(handleDone);
     } else {
       // Global search - fire all at once, no blocking
       const globalPlugins = this.#plugins.filter((p) => !p.trigger);
@@ -987,13 +1173,7 @@ class DGApp {
       mainBox.setMarginEnd(10);
 
       if (result.icon) {
-        const icon = new Image({
-          iconName: result.icon.startsWith("/") ? undefined : result.icon,
-          file: result.icon.startsWith("/") ? result.icon : undefined,
-        });
-        icon.setPixelSize(32);
-        icon.setProperty("valign", 3); // GTK_ALIGN_CENTER
-        mainBox.append(icon);
+        mainBox.append(createIcon(result.icon));
       }
 
       const textBox = new Box(Orientation.VERTICAL, 4);
@@ -1028,7 +1208,25 @@ class DGApp {
     }
   }
 
+  async #activateSearch(query: string) {
+    if (this.#debounceTimer !== null) {
+      clearTimeout(this.#debounceTimer);
+      this.#debounceTimer = null;
+    }
+    if (this.#aiMode) this.#exitAiMode();
+    if (query !== this.#currentResultsQuery || !this.#currentResults.length) {
+      await this.#updateSearch(query);
+    }
+    if (!this.#modelMode && this.#searchEntry?.getText() === query) {
+      await this.#activateResult(0);
+    }
+  }
+
   async #activateResult(index: number) {
+    if (
+      !this.#modelMode &&
+      this.#currentResultsQuery !== this.#searchEntry?.getText()
+    ) return;
     if (index >= 0 && index < this.#currentResults.length) {
       const result = this.#currentResults[index];
       try {

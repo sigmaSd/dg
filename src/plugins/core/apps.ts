@@ -37,9 +37,22 @@ export class AppSource implements Source {
   trigger = undefined; // Global source
 
   #apps: AppInfo[] = [];
+  #catalog?: Promise<AppInfo[]>;
+  #launchApp?: (desktopFile: string) => boolean;
+
+  constructor(launchApp?: (desktopFile: string) => boolean) {
+    this.#launchApp = launchApp;
+  }
 
   async init(): Promise<void> {
-    this.#apps = await getApps();
+    this.#apps = await this.loadCatalog();
+  }
+
+  loadCatalog(): Promise<AppInfo[]> {
+    return this.#catalog ??= getApps().catch((error) => {
+      this.#catalog = undefined;
+      throw error;
+    });
   }
 
   search(query: string): Promise<SearchResult[]> {
@@ -58,6 +71,7 @@ export class AppSource implements Source {
       score: app.name.toLowerCase().startsWith(q) ? 100 : 50,
       onActivate: () => {
         console.log(`Launching: ${app.name}`);
+        if (Deno.build.os === "linux" && this.#launchApp?.(app.path)) return;
         const args = splitExec(app.exec);
         const cmd = args[0];
         const rest = args.slice(1);

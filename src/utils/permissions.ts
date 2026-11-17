@@ -1,4 +1,5 @@
-import { type AdwApplicationWindow, MessageDialog } from "@sigmasd/gtk/adw";
+import { MessageDialog } from "@sigmasd/gtk/adw";
+import type { Window } from "@sigmasd/gtk/gtk4";
 import {
   PERMISSION_NAMES,
   type PluginPermissions,
@@ -51,7 +52,7 @@ export function formatPermissions(p: PluginPermissions): string {
 }
 
 export function promptPermissions(
-  window: AdwApplicationWindow,
+  window: Window,
   name: string,
   perms: PluginPermissions,
 ): Promise<boolean> {

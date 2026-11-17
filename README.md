@@ -55,6 +55,26 @@ deno task start
 Use `Ctrl+Q` to quit the application completely, or `Escape` to hide it to the
 background.
 
+Open **Preferences → Plugins** from the gear icon or with `Ctrl+,` to turn
+built-in or installed plugins on or off. Switches apply immediately. Turning a
+plugin off keeps its settings and permission approvals.
+
+Type `b <query>` to search Firefox history or `q <query>` to search the web. The
+Plugins list shows the shortcuts. Open a plugin's **Settings** to change its
+trigger. Use `Escape` to close Preferences.
+
+### Opening local paths on Linux
+
+Paste an absolute path or a path starting with `~/` into the search field. Use
+`~` for your home folder. DG can open the path with its default app or reveal a
+file in the file manager.
+
+Open **Preferences** from the gear icon or press `Ctrl+,`, then choose **Paths**
+under **Plugins**. Add installed apps such as Zed, choose whether each action
+applies to files, folders, or both, and reorder or remove actions. Press
+**Save** to apply the list. Enter runs the first action that applies to the
+current path.
+
 ## AI Assistant
 
 DG includes an AI assistant powered by OpenCode. This feature is completely
@@ -68,12 +88,13 @@ optional and opt-in.
    deno install -gfA 'npm:opencode-ai' --allow-scripts=npm:opencode-ai
    ```
 
-2. **Enable AI** in your config at `~/.config/dg/plugins.json`:
+2. **Enable AI Assistant** in **Preferences → Plugins**. Its **Settings** page
+   controls the trigger, OpenCode model, and tool access. You can also customize
+   tool permissions in `~/.config/dg/plugins.json`:
 
    ```json
    {
      "opencode": {
-       "enabled": true,
        "tools": {
          "read": true,
          "grep": true,

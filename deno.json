@@ -1,6 +1,6 @@
 {
   "name": "@sigmasd/dg",
-  "version": "1.13.0",
+  "version": "1.14.0",
   "license": "MIT",
   "exports": {
     ".": "./src/main.ts",
@@ -10,7 +10,7 @@
   },
   "tasks": {
     "start": "deno run --allow-all --unstable-kv --unstable-worker-options --no-prompt src/main.ts",
-    "build": "deno run --allow-all build.ts"
+    "build": "deno compile --allow-all --no-prompt --unstable-kv --unstable-worker-options --include src/plugins/worker/client.ts --output dist/dg src/main.ts"
   },
   "imports": {
     "@sigmasd/gtk": "jsr:@sigmasd/gtk@0.62.1",

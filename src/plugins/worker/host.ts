@@ -98,6 +98,7 @@ export class WorkerSource implements Source {
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         worker.terminate();
+        URL.revokeObjectURL(url);
         reject(new Error("Plugin metadata load timed out"));
       }, 5000);
 
@@ -109,6 +110,7 @@ export class WorkerSource implements Source {
       };
 
       worker.onerror = (e) => {
+        e.preventDefault();
         clearTimeout(timeout);
         worker.terminate();
         URL.revokeObjectURL(url);
@@ -144,9 +146,21 @@ export class WorkerSource implements Source {
       } as { permissions: Deno.PermissionOptions },
     });
 
+    const ready = Promise.withResolvers<void>();
+    const timeout = setTimeout(
+      () => ready.reject(new Error("Plugin startup timed out")),
+      5000,
+    );
+    this.#worker.onerror = (event) => {
+      event.preventDefault();
+      ready.reject(new Error(event.message));
+      console.error(`[Plugin ${this.id}]`, event.message);
+    };
     this.#worker.onmessage = (e: MessageEvent<MainMessage>) => {
       const msg = e.data;
-      if (msg.type === "results") {
+      if (msg.type === "ready") {
+        ready.resolve();
+      } else if (msg.type === "results") {
         const resolve = this.#pendingSearches.get(msg.id);
         if (resolve) {
           // Hydrate the results with the activation logic
@@ -160,19 +174,17 @@ export class WorkerSource implements Source {
                   resolve();
                   return;
                 }
-                this.#pendingActivations.set(r.resultId, resolve);
+                const timeout = setTimeout(() => {
+                  if (this.#pendingActivations.delete(r.resultId)) resolve();
+                }, 5000);
+                this.#pendingActivations.set(r.resultId, () => {
+                  clearTimeout(timeout);
+                  resolve();
+                });
                 this.#worker?.postMessage({
                   type: "activate",
                   id: r.resultId,
                 } as WorkerMessage);
-
-                // Safety timeout
-                setTimeout(() => {
-                  if (this.#pendingActivations.has(r.resultId)) {
-                    this.#pendingActivations.delete(r.resultId);
-                    resolve();
-                  }
-                }, 5000);
               });
             },
           }));
@@ -203,7 +215,7 @@ export class WorkerSource implements Source {
       }
     };
 
-    return Promise.resolve();
+    return ready.promise.finally(() => clearTimeout(timeout));
   }
 
   /**
@@ -217,16 +229,14 @@ export class WorkerSource implements Source {
     const msg: WorkerMessage = { type: "search", id, query };
 
     return new Promise((resolve) => {
-      this.#pendingSearches.set(id, resolve);
-      this.#worker!.postMessage(msg);
-
-      // Cleanup timeout
-      setTimeout(() => {
-        if (this.#pendingSearches.has(id)) {
-          this.#pendingSearches.delete(id);
-          resolve([]);
-        }
+      const timeout = setTimeout(() => {
+        if (this.#pendingSearches.delete(id)) resolve([]);
       }, 5000);
+      this.#pendingSearches.set(id, (results) => {
+        clearTimeout(timeout);
+        resolve(results);
+      });
+      this.#worker!.postMessage(msg);
     });
   }
 
@@ -236,6 +246,10 @@ export class WorkerSource implements Source {
       this.#worker.terminate();
       this.#worker = undefined;
     }
+    for (const resolve of this.#pendingSearches.values()) resolve([]);
+    this.#pendingSearches.clear();
+    for (const resolve of this.#pendingActivations.values()) resolve();
+    this.#pendingActivations.clear();
     if (this.#blobUrl) {
       URL.revokeObjectURL(this.#blobUrl);
       this.#blobUrl = undefined;

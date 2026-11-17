@@ -1,5 +1,9 @@
 import type { SearchResult, Source } from "../interface.ts";
-import { ConfigManager } from "../../config.ts";
+import {
+  ConfigManager,
+  defaultOpencodeTools,
+  type OpencodeConfig,
+} from "../../config.ts";
 import { createOpencode, type OpencodeClient } from "@opencode-ai/sdk";
 import { readClipboard } from "../../utils/clipboard.ts";
 
@@ -23,40 +27,27 @@ export class AiSource implements Source {
   name = "AI Assistant";
   description = "Ask AI questions via OpenCode";
   trigger = "ai";
-  #configManager = new ConfigManager();
+  #configManager: ConfigManager;
   #opencodeInstance?: Awaited<ReturnType<typeof createOpencode>>;
   #opencodeClient?: Awaited<ReturnType<typeof createOpencode>>["client"];
-  #createdOwnServer = false;
+  #enabled = false;
   #sessionId?: string;
   #abortController?: AbortController;
 
-  #opencodePort?: number;
   #initializingOpencode: Promise<OpencodeClient> | null = null;
   #currentModel?: string;
-  #opencodeConfig?: {
-    enabled?: boolean;
-    tools?: {
-      bash?: boolean;
-      read?: boolean;
-      edit?: boolean;
-      write?: boolean;
-      grep?: boolean;
-      glob?: boolean;
-      task?: boolean;
-      external_directory?: boolean;
-    };
-  };
+  #opencodeConfig?: OpencodeConfig;
 
-  constructor() {}
+  constructor(config = new ConfigManager()) {
+    this.#configManager = config;
+  }
 
   async init(): Promise<void> {
     this.#opencodeConfig = await this.#configManager.getOpencodeConfig();
     this.#currentModel = await this.#configManager.getModel();
 
-    if (this.#opencodeConfig?.enabled) {
-      // Pre-warm the OpenCode server in background
-      void this.#warmupOpencode();
-    }
+    this.#enabled = true;
+    void this.#warmupOpencode();
   }
 
   async #warmupOpencode(): Promise<void> {
@@ -69,28 +60,16 @@ export class AiSource implements Source {
   }
 
   async #ensureOpencodeClient(): Promise<OpencodeClient> {
-    // If we have a client, assume it's still working
-    if (this.#opencodeClient) {
-      return this.#opencodeClient;
-    }
-
-    // If already initializing, wait for it
-    if (this.#initializingOpencode) {
-      const client = await this.#initializingOpencode;
-      return client;
-    }
-
-    console.log("[AI/OpenCode] Getting OpenCode client...");
-
-    if (this.#opencodeConfig?.enabled) {
-      // Create the initialization promise
-      this.#initializingOpencode = this.#createOpencodeClient();
-
-      const client = await this.#initializingOpencode;
-      this.#initializingOpencode = null;
-      return client;
-    } else {
-      throw new Error("OpenCode not configured");
+    if (!this.#enabled) throw new Error("AI Assistant is disabled");
+    if (this.#opencodeClient) return this.#opencodeClient;
+    const initializing = this.#initializingOpencode ??= this
+      .#createOpencodeClient();
+    try {
+      return await initializing;
+    } finally {
+      if (this.#initializingOpencode === initializing) {
+        this.#initializingOpencode = null;
+      }
     }
   }
 
@@ -105,17 +84,7 @@ export class AiSource implements Source {
     external_directory?: "allow" | "deny" | "ask";
   } {
     const tools = this.#opencodeConfig?.tools;
-    const defaultTools = {
-      read: true,
-      grep: true,
-      glob: true,
-      edit: false,
-      write: false,
-      bash: false,
-      task: false,
-      external_directory: false,
-    };
-    const t = tools || defaultTools;
+    const t = tools ?? defaultOpencodeTools;
     return {
       bash: t.bash ? "allow" : "deny",
       read: t.read ? "allow" : "deny",
@@ -132,33 +101,25 @@ export class AiSource implements Source {
     console.log("[AI/OpenCode] Spawning new server...");
 
     // Create abort controller for cleanup
-    this.#abortController = new AbortController();
+    const controller = this.#abortController = new AbortController();
 
     try {
       const opencode = await createOpencode({
         timeout: 30000,
         port: 0,
-        signal: this.#abortController.signal,
+        signal: controller.signal,
         config: {
           permission: this.#getPermissionConfig(),
           model: this.#currentModel,
         },
       });
+      if (controller.signal.aborted) {
+        opencode.server.close();
+        throw controller.signal.reason;
+      }
       this.#opencodeInstance = opencode;
       this.#opencodeClient = opencode.client;
-      this.#createdOwnServer = true;
-
-      // Extract port from URL like http://127.0.0.1:4096
-      const url = opencode.server.url;
-      const portMatch = url.match(/:(\d+)$/);
-      this.#opencodePort = portMatch ? parseInt(portMatch[1], 10) : 4096;
-
-      console.log(
-        "[AI/OpenCode] Created server at:",
-        url,
-        "port:",
-        this.#opencodePort,
-      );
+      console.log("[AI/OpenCode] Created server at:", opencode.server.url);
       return opencode.client;
     } catch (createErr) {
       console.log("[AI/OpenCode] Failed to create server:", createErr);
@@ -176,18 +137,7 @@ export class AiSource implements Source {
 
   // deno-lint-ignore require-await
   async search(query: string): Promise<SearchResult[]> {
-    const hasOpencode = this.#opencodeConfig?.enabled;
-
-    if (!hasOpencode) {
-      return [{
-        title: "No AI Provider",
-        subtitle:
-          "Set opencode: { enabled: true, tools: { read: true } } in config",
-        icon: "dialog-error",
-        score: 100,
-        onActivate: () => {},
-      }];
-    }
+    if (!this.#enabled) return [];
 
     if (!query.trim()) {
       return [{
@@ -245,16 +195,19 @@ export class AiSource implements Source {
 
       // Get client (reuse if available)
       const client = await this.#ensureOpencodeClient();
+      if (signal?.aborted || client !== this.#opencodeClient) return;
 
       // Reuse existing session or create new one
       let sessionId = this.#sessionId;
       if (!sessionId) {
         console.log("[AI/OpenCode] Creating new session...");
         const session = await client.session.create({
+          signal,
           body: {
             title: "DG AI Query",
           },
         });
+        if (signal?.aborted || client !== this.#opencodeClient) return;
         sessionId = session.data?.id;
         if (!sessionId) {
           callbacks.onError("Failed to create session");
@@ -269,6 +222,7 @@ export class AiSource implements Source {
       // Send message asynchronously
       console.log("[AI/OpenCode] Sending async message...");
       await client.session.promptAsync({
+        signal,
         path: { id: sessionId },
         body: {
           parts: [{ type: "text", text: fullMessage }],
@@ -277,7 +231,7 @@ export class AiSource implements Source {
 
       console.log("[AI/OpenCode] Async message sent, listening for events...");
 
-      const events = await client.event.subscribe();
+      const events = await client.event.subscribe({ signal });
       const handledToolCalls = new Set<string>();
       const partIdToType = new Map<string, string>();
       let done = false;
@@ -491,13 +445,13 @@ export class AiSource implements Source {
       await this.#configManager.setModel(model);
 
       // Reset existing connection to use new model on next request
-      await this.destroy();
+      await this.#disconnect();
 
       // Clear session so we start fresh with the new model
       this.clearConversation();
 
       // Pre-warm with the new model
-      void this.#warmupOpencode();
+      if (this.#enabled) void this.#warmupOpencode();
       return true;
     } catch (e) {
       console.error("[AI/OpenCode] Failed to set model:", e);
@@ -505,42 +459,19 @@ export class AiSource implements Source {
     }
   }
 
-  async destroy(waitForPort = false): Promise<void> {
-    if (this.#abortController) {
-      if (waitForPort && this.#initializingOpencode) {
-        try {
-          await this.#initializingOpencode;
-        } catch {
-          // ignore
-        }
-        this.#initializingOpencode = null;
-      }
+  destroy(): Promise<void> {
+    this.#enabled = false;
+    return this.#disconnect();
+  }
 
-      if (this.#opencodePort) {
-        try {
-          const fuserCmd = new Deno.Command("fuser", {
-            args: ["-k", `${this.#opencodePort}/tcp`],
-          });
-          await fuserCmd.output();
-        } catch {
-          // ignore
-        }
-      }
-
-      if (this.#opencodeInstance) {
-        try {
-          this.#opencodeInstance.server.close();
-        } catch {
-          // ignore
-        }
-      }
-    }
-
+  async #disconnect(): Promise<void> {
+    const initializing = this.#initializingOpencode;
+    this.#abortController?.abort();
+    this.#abortController = undefined;
+    this.#opencodeInstance?.server.close();
     this.#sessionId = undefined;
     this.#opencodeClient = undefined;
     this.#opencodeInstance = undefined;
-    this.#createdOwnServer = false;
-    this.#opencodePort = undefined;
-    this.#abortController = undefined;
+    await initializing?.catch(() => {});
   }
 }

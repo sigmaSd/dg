@@ -51,7 +51,7 @@ jobs:
 
       - name: Build binary
         run: |
-          deno compile --allow-all --unstable-worker-options --output ${{ matrix.output }} --target ${{ matrix.target }} src/main.ts
+          deno compile --allow-all --no-prompt --unstable-kv --unstable-worker-options --include src/plugins/worker/client.ts --output ${{ matrix.output }} --target ${{ matrix.target }} src/main.ts
 
       - name: Package Windows (Portable EXE)
         if: runner.os == 'Windows'

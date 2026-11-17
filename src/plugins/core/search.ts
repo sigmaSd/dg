@@ -1,10 +1,16 @@
 import type { SearchResult, Source } from "../interface.ts";
+import { openUrl } from "../../utils/open-url.ts";
 
 export class SearchSource implements Source {
   id = "search";
   name = "Web Search";
-  description = "Search the web via Google or DuckDuckGo";
+  description = "Search Google, DuckDuckGo, or Bing";
   trigger = "q";
+  #openUrl: typeof openUrl;
+
+  constructor(opener = openUrl) {
+    this.#openUrl = opener;
+  }
 
   #engines = [
     { name: "Google", url: "https://www.google.com/search?q=" },
@@ -15,6 +21,7 @@ export class SearchSource implements Source {
   async init(): Promise<void> {}
 
   search(query: string): Promise<SearchResult[]> {
+    query = query.trim();
     if (!query) {
       return Promise.resolve(this.#engineResults("Type to search", ""));
     }
@@ -40,30 +47,8 @@ export class SearchSource implements Source {
       score: query ? 100 : 50,
       onActivate: () => {
         if (!encoded) return;
-        const url = engine.url + encoded;
-        this.#openUrl(url);
+        return this.#openUrl(engine.url + encoded);
       },
     }));
-  }
-
-  #openUrl(url: string) {
-    console.log(`Opening: ${url}`);
-    let commandName = "xdg-open";
-    let args = [url];
-
-    if (Deno.build.os === "windows") {
-      commandName = "cmd";
-      args = ["/c", "start", "", url];
-    } else if (Deno.build.os === "darwin") {
-      commandName = "open";
-    }
-
-    const command = new Deno.Command(commandName, {
-      args,
-      stdin: "null",
-      stdout: "null",
-      stderr: "null",
-    });
-    command.spawn();
   }
 }

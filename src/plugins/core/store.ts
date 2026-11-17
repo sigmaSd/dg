@@ -10,15 +10,23 @@ export class StoreSource implements Source {
   description = "Search and install dg-plugins from JSR";
   trigger = "store";
 
-  #configManager = new ConfigManager();
+  #configManager: ConfigManager;
+  #onInstalledChanged: () => Promise<void>;
   #installedPlugins: string[] = [];
   #debounceTimer: ReturnType<typeof setTimeout> | null = null;
   #abortController: AbortController | null = null;
   #lastResults: SearchResult[] = [];
+  #settleDelay?: (results: SearchResult[]) => void;
   #window?: AdwApplicationWindow;
 
-  constructor(window?: AdwApplicationWindow) {
+  constructor(
+    window?: AdwApplicationWindow,
+    config = new ConfigManager(),
+    onInstalledChanged: () => Promise<void> = () => Promise.resolve(),
+  ) {
     this.#window = window;
+    this.#configManager = config;
+    this.#onInstalledChanged = onInstalledChanged;
   }
 
   async init(): Promise<void> {
@@ -27,10 +35,8 @@ export class StoreSource implements Source {
   }
 
   async search(query: string): Promise<SearchResult[]> {
+    this.#cancelSearch();
     if (!query) {
-      if (this.#debounceTimer) clearTimeout(this.#debounceTimer);
-      if (this.#abortController) this.#abortController.abort();
-
       const config = await this.#configManager.read();
       this.#installedPlugins = config.plugins.map((p) => p.url);
 
@@ -58,6 +64,7 @@ export class StoreSource implements Source {
           onActivate: async () => {
             console.log(`Removing plugin: ${url}`);
             await this.#configManager.removePlugin(url);
+            await this.#onInstalledChanged();
           },
         };
       });
@@ -75,22 +82,37 @@ export class StoreSource implements Source {
     }
 
     // Debounce logic within the async search
-    if (this.#debounceTimer) clearTimeout(this.#debounceTimer);
-    if (this.#abortController) this.#abortController.abort();
-
     return new Promise((resolve) => {
+      this.#settleDelay = resolve;
       this.#debounceTimer = setTimeout(() => {
-        void (async () => {
-          this.#abortController = new AbortController();
-          const results = await this.#performSearch(
-            query,
-            this.#abortController.signal,
-          );
-          this.#lastResults = results;
-          resolve(results);
-        })();
+        this.#debounceTimer = null;
+        this.#settleDelay = undefined;
+        const controller = this.#abortController = new AbortController();
+        void this.#performSearch(query, controller.signal).then((results) => {
+          if (controller.signal.aborted) {
+            resolve([]);
+          } else {
+            this.#lastResults = results;
+            resolve(results);
+          }
+        });
       }, 500);
     });
+  }
+
+  #cancelSearch() {
+    if (this.#debounceTimer !== null) clearTimeout(this.#debounceTimer);
+    this.#debounceTimer = null;
+    this.#settleDelay?.([]);
+    this.#settleDelay = undefined;
+    this.#abortController?.abort();
+    this.#abortController = null;
+  }
+
+  destroy(): Promise<void> {
+    this.#cancelSearch();
+    this.#lastResults = [];
+    return Promise.resolve();
   }
 
   async #performSearch(
@@ -194,7 +216,13 @@ export class StoreSource implements Source {
               } else {
                 console.log(`Installing ${pinnedUrl}...`);
               }
-              await this.#configManager.addPlugin(pinnedUrl, permissions);
+              await this.#configManager.addPlugin(
+                pinnedUrl,
+                permissions,
+                meta.name,
+                meta.trigger,
+              );
+              await this.#onInstalledChanged();
             } catch (err) {
               console.error("Failed to install plugin:", err);
             }

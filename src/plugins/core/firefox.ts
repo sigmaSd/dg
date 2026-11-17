@@ -1,5 +1,48 @@
 import { DatabaseSync } from "node:sqlite";
+import { stat } from "node:fs/promises";
+import { join } from "node:path";
 import type { SearchResult, Source } from "../interface.ts";
+import { openUrl } from "../../utils/open-url.ts";
+
+async function fileVersion(path: string): Promise<string | undefined> {
+  try {
+    const info = await stat(path, { bigint: true });
+    return `${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+}
+
+async function copyPlacesSnapshot(source: string, target: string) {
+  const sourceWal = `${source}-wal`;
+  const targetWal = `${target}-wal`;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const [places, wal] = await Promise.all([
+        fileVersion(source),
+        fileVersion(sourceWal),
+      ]);
+      if (!places) break;
+      await Deno.copyFile(source, target);
+      if (wal) {
+        await Deno.copyFile(sourceWal, targetWal);
+      } else {
+        await Deno.remove(targetWal).catch((error) => {
+          if (!(error instanceof Deno.errors.NotFound)) throw error;
+        });
+      }
+      const [copiedPlaces, copiedWal] = await Promise.all([
+        fileVersion(source),
+        fileVersion(sourceWal),
+      ]);
+      // Firefox may write or checkpoint its WAL during the copy. Retry a changed pair.
+      if (places === copiedPlaces && wal === copiedWal) return;
+    } catch (error) {
+      if (!(error instanceof Deno.errors.NotFound)) throw error;
+    }
+  }
+  throw new Error("Could not take a stable snapshot of Firefox history.");
+}
 
 export class FirefoxSource implements Source {
   id = "firefox";
@@ -7,45 +50,71 @@ export class FirefoxSource implements Source {
   description = "Search browser history and bookmarks";
   trigger = "b";
 
-  #dbPath?: string;
   #db?: DatabaseSync;
-  #tmpPath?: string;
+  #snapshotDir?: string;
+  #openUrl: typeof openUrl;
+
+  constructor(opener = openUrl) {
+    this.#openUrl = opener;
+  }
 
   async init(): Promise<void> {
     // Clean up any previous init before re-initializing
     await this.destroy();
 
-    const home = Deno.env.get("HOME");
+    const home = Deno.env.get("HOME") || Deno.env.get("USERPROFILE");
     if (!home) return;
 
-    const firefoxDir = `${home}/.mozilla/firefox`;
-
-    // Find all potential Firefox profiles with places.sqlite
+    const configHome = Deno.env.get("XDG_CONFIG_HOME") || join(home, ".config");
+    const roots = [
+      join(configHome, "mozilla", "firefox"),
+      join(home, ".mozilla", "firefox"),
+    ];
+    if (Deno.build.os === "linux") {
+      const flatpak = join(home, ".var", "app", "org.mozilla.firefox");
+      roots.push(
+        join(flatpak, "config", "mozilla", "firefox"),
+        join(flatpak, ".mozilla", "firefox"),
+      );
+      roots.push(
+        join(home, "snap", "firefox", "common", ".mozilla", "firefox"),
+      );
+    } else if (Deno.build.os === "darwin") {
+      roots.unshift(
+        join(home, "Library", "Application Support", "Firefox", "Profiles"),
+      );
+    } else if (Deno.build.os === "windows") {
+      const roaming = Deno.env.get("APPDATA") ||
+        join(home, "AppData", "Roaming");
+      roots.unshift(join(roaming, "Mozilla", "Firefox", "Profiles"));
+    }
     const candidates: Array<{ path: string; mtime: number; name: string }> = [];
-
-    try {
-      for await (const entry of Deno.readDir(firefoxDir)) {
-        if (entry.isDirectory) {
-          const placesPath = `${firefoxDir}/${entry.name}/places.sqlite`;
-          try {
-            const stat = await Deno.stat(placesPath);
-            candidates.push({
-              path: placesPath,
-              mtime: stat.mtime?.getTime() || 0,
-              name: entry.name,
-            });
-          } catch {
-            continue;
-          }
+    for (const root of roots) {
+      try {
+        for await (const entry of Deno.readDir(root)) {
+          if (!entry.isDirectory && !entry.isSymlink) continue;
+          const places = join(root, entry.name, "places.sqlite");
+          const info = await Deno.stat(places).catch(() => undefined);
+          if (!info?.isFile) continue;
+          const wal = await Deno.stat(`${places}-wal`).catch(() => undefined);
+          candidates.push({
+            path: places,
+            mtime: Math.max(
+              info.mtime?.getTime() ?? 0,
+              wal?.mtime?.getTime() ?? 0,
+            ),
+            name: entry.name,
+          });
+        }
+      } catch (error) {
+        if (!(error instanceof Deno.errors.NotFound)) {
+          console.warn(`Could not read Firefox profiles in ${root}:`, error);
         }
       }
-    } catch {
-      console.warn("Could not find Firefox profile");
-      return;
     }
 
     if (candidates.length === 0) {
-      console.warn("No Firefox profiles with places.sqlite found");
+      this.description = "No Firefox history profile found";
       return;
     }
 
@@ -59,18 +128,27 @@ export class FirefoxSource implements Source {
       return b.mtime - a.mtime;
     });
 
-    this.#dbPath = candidates[0].path;
-    console.log(`Using Firefox profile: ${candidates[0].name}`);
-
-    if (this.#dbPath) {
-      // Copy to temp to avoid lock
-      this.#tmpPath = await Deno.makeTempFile({ suffix: ".sqlite" });
-      await Deno.copyFile(this.#dbPath, this.#tmpPath);
-      this.#db = new DatabaseSync(this.#tmpPath);
+    const cache = Deno.env.get("XDG_CACHE_HOME") || join(home, ".cache");
+    const snapshotRoot = Deno.env.get("TMPDIR") || join(cache, "dg");
+    await Deno.mkdir(snapshotRoot, { recursive: true });
+    this.#snapshotDir = await Deno.makeTempDir({
+      dir: snapshotRoot,
+      prefix: "dg-firefox-",
+    });
+    const snapshot = join(this.#snapshotDir, "places.sqlite");
+    try {
+      await copyPlacesSnapshot(candidates[0].path, snapshot);
+      this.#db = new DatabaseSync(snapshot, { readOnly: true });
+      this.#db.prepare("SELECT 1 FROM moz_places LIMIT 0");
+      this.description = "Search browser history and bookmarks";
+    } catch (error) {
+      await this.destroy();
+      throw error;
     }
   }
 
   search(query: string): Promise<SearchResult[]> {
+    query = query.trim();
     if (!this.#db || !query) return Promise.resolve([]);
 
     const q = `%${query}%`;
@@ -116,27 +194,7 @@ export class FirefoxSource implements Source {
         subtitle: row.url,
         icon: "firefox",
         score,
-        onActivate: () => {
-          console.log(`Opening: ${row.url}`);
-          let commandName = "xdg-open";
-          let args = [row.url];
-
-          if (Deno.build.os === "windows") {
-            commandName = "cmd";
-            args = ["/c", "start", row.url];
-          } else if (Deno.build.os === "darwin") {
-            commandName = "open";
-          }
-
-          const command = new Deno.Command(commandName, {
-            args,
-            stdin: "null",
-            stdout: "null",
-            stderr: "null",
-            detached: true,
-          });
-          command.spawn();
-        },
+        onActivate: () => this.#openUrl(row.url),
       };
     }));
   }
@@ -153,14 +211,13 @@ export class FirefoxSource implements Source {
     }
 
     // Then remove temp file
-    if (this.#tmpPath) {
+    if (this.#snapshotDir) {
       try {
-        await Deno.remove(this.#tmpPath);
+        await Deno.remove(this.#snapshotDir, { recursive: true });
       } catch {
         // Ignore
       }
-      this.#tmpPath = undefined;
-      this.#dbPath = undefined;
+      this.#snapshotDir = undefined;
     }
   }
 }

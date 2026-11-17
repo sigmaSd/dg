@@ -3,6 +3,8 @@ import type { PluginPermissions } from "./plugins/interface.ts";
 
 export interface PluginEntry {
   url: string;
+  name?: string;
+  trigger?: string;
   permissions?: PluginPermissions;
 }
 
@@ -23,6 +25,19 @@ export interface OpencodeConfig {
   tools?: OpencodeToolsConfig;
 }
 
+export const defaultOpencodeModel = "opencode/minimax-m2.5-free";
+
+export const defaultOpencodeTools: Readonly<Required<OpencodeToolsConfig>> = {
+  read: true,
+  grep: true,
+  glob: true,
+  edit: false,
+  write: false,
+  bash: false,
+  task: false,
+  external_directory: false,
+};
+
 export interface Config {
   plugins: PluginEntry[];
   opencode?: OpencodeConfig;
@@ -37,6 +52,7 @@ export interface CachedModel {
 
 export class ConfigManager {
   #configPath: string;
+  #settingsDir: string;
   #kvPromise: Promise<Deno.Kv>;
 
   constructor() {
@@ -51,6 +67,7 @@ export class ConfigManager {
 
     const dgDir = join(baseDir, "dg");
     this.#configPath = join(dgDir, "plugins.json");
+    this.#settingsDir = join(dgDir, "settings");
 
     // Initialize KV in the config directory
     this.#kvPromise = (async () => {
@@ -116,18 +133,42 @@ export class ConfigManager {
     }
   }
 
+  async getPluginSettings(id: string): Promise<unknown> {
+    const file = join(this.#settingsDir, `${encodeURIComponent(id)}.json`);
+    try {
+      return JSON.parse(await Deno.readTextFile(file));
+    } catch (error) {
+      if (!(error instanceof Deno.errors.NotFound)) throw error;
+    }
+  }
+
+  async setPluginSettings(id: string, value: unknown): Promise<void> {
+    const json = JSON.stringify(value, null, 2);
+    if (json === undefined) throw new TypeError("Plugin settings must be JSON");
+    const file = join(this.#settingsDir, `${encodeURIComponent(id)}.json`);
+    await Deno.mkdir(this.#settingsDir, { recursive: true });
+    const temp = await Deno.makeTempFile({ dir: this.#settingsDir });
+    try {
+      await Deno.writeTextFile(temp, `${json}\n`);
+      await Deno.rename(temp, file);
+    } catch (error) {
+      await Deno.remove(temp).catch(() => {});
+      throw error;
+    }
+  }
+
   async read(): Promise<Config> {
     try {
       const text = await Deno.readTextFile(this.#configPath);
       const json = JSON.parse(text);
 
       // Migration: Convert string[] to PluginEntry[]
-      if (
-        Array.isArray(json.plugins) && json.plugins.length > 0 &&
-        typeof json.plugins[0] === "string"
-      ) {
-        json.plugins = (json.plugins as string[]).map((url) => ({ url }));
-      }
+      json.plugins = Array.isArray(json.plugins)
+        ? json.plugins.flatMap((entry: PluginEntry | string | null) => {
+          if (typeof entry === "string") return [{ url: entry }];
+          return entry && typeof entry.url === "string" ? [entry] : [];
+        })
+        : [];
 
       return json;
     } catch {
@@ -135,11 +176,16 @@ export class ConfigManager {
     }
   }
 
-  async addPlugin(url: string, permissions?: PluginPermissions) {
+  async addPlugin(
+    url: string,
+    permissions?: PluginPermissions,
+    name?: string,
+    trigger?: string,
+  ) {
     await this.ensureConfigDir();
     const config = await this.read();
     if (!config.plugins.find((p) => p.url === url)) {
-      config.plugins.push({ url, permissions });
+      config.plugins.push({ url, permissions, name, trigger });
       await Deno.writeTextFile(
         this.#configPath,
         JSON.stringify(config, null, 2),
@@ -190,7 +236,7 @@ export class ConfigManager {
 
   async getModel(): Promise<string> {
     const config = await this.read();
-    return config.opencode?.model || "opencode/minimax-m2.5-free";
+    return config.opencode?.model || defaultOpencodeModel;
   }
 
   async setModel(model: string) {
