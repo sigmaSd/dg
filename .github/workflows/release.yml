@@ -6,14 +6,35 @@ on:
       - "v*"
     branches:
       - feat/cross-platform-bundle
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to rebuild for Windows
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 jobs:
+  prepare:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find or create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: |
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null ||
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes
+
   build:
+    needs: prepare
+    if: ${{ !cancelled() && (needs.prepare.result == 'success' || needs.prepare.result == 'skipped') && github.event_name != 'workflow_dispatch' }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
@@ -25,112 +46,88 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             output: dg-macos-aarch64
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            output: dg-windows.exe
 
     steps:
-      - name: Setup repo
-        uses: actions/checkout@v4
-
-      - name: Setup Deno
-        uses: denoland/setup-deno@v2
-
-      - name: Setup MSYS2 (Windows)
-        if: runner.os == 'Windows'
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          cache: true
-          install: >-
-            mingw-w64-x86_64-gtk4
-            mingw-w64-x86_64-libadwaita
-            mingw-w64-x86_64-adwaita-icon-theme
-            mingw-w64-x86_64-7zip
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
 
       - name: Build binary
         run: |
           deno compile --allow-all --no-prompt --unstable-kv --unstable-worker-options --include src/plugins/worker/client.ts --output ${{ matrix.output }} --target ${{ matrix.target }} src/main.ts
 
-      - name: Package Windows (Portable EXE)
-        if: runner.os == 'Windows'
+      - name: Upload binary
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" "${{ matrix.output }}" --repo "$GITHUB_REPOSITORY" --clobber
+
+  windows:
+    needs: prepare
+    if: ${{ !cancelled() && (needs.prepare.result == 'success' || needs.prepare.result == 'skipped') }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+
+      - uses: denoland/setup-deno@v2
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          cache: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gtk4
+            mingw-w64-ucrt-x86_64-libadwaita
+            mingw-w64-ucrt-x86_64-adwaita-icon-theme
+            mingw-w64-ucrt-x86_64-7zip
+
+      - name: Build binary
+        run: |
+          deno compile --allow-all --no-prompt --unstable-kv --unstable-worker-options --include src/plugins/worker/client.ts --output dg-windows.exe --target x86_64-pc-windows-msvc src/main.ts
+
+      - name: Package Windows downloads
         shell: msys2 {0}
         run: |
-          mkdir -p dist-windows
-          cp dg-windows.exe dist-windows/dg.exe
-
-          # Only copy required DLLs to keep the bundle smaller and avoid potential issues
-          # We'll use ldd to find dependencies if needed, but for now let's just copy everything in bin
-          # but filter out some obvious non-DLLs if any, and see if it works.
-          # Actually, the previous step was: cp /mingw64/bin/*.dll dist-windows/
-          # Let's try to be more selective or at least see what's being copied.
-          cp /mingw64/bin/*.dll dist-windows/
-
           mkdir -p dist-windows/share
-          cp -r /mingw64/share/icons dist-windows/share/
-          cp -r /mingw64/share/glib-2.0 dist-windows/share/
-
-          # Create SFX config
-          echo ";!@Install@!UTF-8!" > sfx_config.txt
-          echo "RunProgram=\"dg.exe\"" >> sfx_config.txt
-          echo ";!@InstallEnd@!" >> sfx_config.txt
-
-          # Archive the files
-          7z a dg-bundle.7z ./dist-windows/*
-
-          # Also create a simple ZIP for fallback
+          cp dg-windows.exe dist-windows/dg.exe
+          cp "$MINGW_PREFIX"/bin/*.dll dist-windows/
+          cp -r "$MINGW_PREFIX"/share/icons "$MINGW_PREFIX"/share/glib-2.0 dist-windows/share/
           7z a dg-windows.zip ./dist-windows/*
 
-          # Combine SFX stub + config + archive into a single portable EXE
-          # Note: We use a generic SFX stub.
-          # Use a more robust way to find the stub that doesn't trigger set -e failure
-          SFX_STUB=""
-          for dir in "/usr/lib/7zip" "/mingw64/lib/7zip" "/mingw64/bin"; do
-            if [ -d "$dir" ]; then
-              FOUND=$(find "$dir" -name "7zSD.sfx" -o -name "7zS.sfx" -o -name "7z.sfx" 2>/dev/null | head -n 1)
-              if [ -n "$FOUND" ]; then
-                SFX_STUB="$FOUND"
-                break
+          SFX_STUB=
+          for dir in "/usr/lib/7zip" "$MINGW_PREFIX/lib/7zip" "$MINGW_PREFIX/bin" "/c/Program Files/7-Zip"; do
+            for name in 7zSD.sfx 7zS.sfx; do
+              if [ -f "$dir/$name" ]; then
+                SFX_STUB="$dir/$name"
+                break 2
               fi
-            fi
+            done
           done
 
           if [ -z "$SFX_STUB" ]; then
-            echo "SFX stub not found in MSYS2, checking common Windows locations..."
-            for stub in "/c/Program Files/7-Zip/7zS.sfx" "/c/Program Files/7-Zip/7zSD.sfx"; do
-              if [ -f "$stub" ]; then
-                SFX_STUB="$stub"
-                break
-              fi
-            done
-          fi
-
-          if [ -z "$SFX_STUB" ]; then
-            echo "SFX stub still not found. Downloading 7z extra..."
-            if curl -L -o 7z-extra.7z https://www.7-zip.org/a/7z2408-extra.7z; then
-              7z x 7z-extra.7z 7zS.sfx || true
-              if [ -f "7zS.sfx" ]; then
-                SFX_STUB="7zS.sfx"
-              fi
+            if curl -fL -o 7z-extra.7z https://www.7-zip.org/a/7z2408-extra.7z &&
+              7z x 7z-extra.7z 7zS.sfx && [ -f 7zS.sfx ]; then
+              SFX_STUB=7zS.sfx
             fi
           fi
 
           if [ -n "$SFX_STUB" ]; then
-            echo "Using SFX stub: $SFX_STUB"
+            printf '%s\n' ';!@Install@!UTF-8!' 'RunProgram="dg.exe"' ';!@InstallEnd@!' > sfx_config.txt
+            7z a dg-bundle.7z ./dist-windows/*
             cat "$SFX_STUB" sfx_config.txt dg-bundle.7z > dg-portable.exe
           else
-            echo "Warning: Could not create portable EXE, but ZIP bundle is available."
+            echo "::warning::No installer SFX stub found. The portable ZIP is available."
           fi
 
-      - name: Upload binary
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v1
-        with:
-          files: |
-            ${{ matrix.output }}
-            dg-portable.exe
-            dg-windows.zip
-          fail_on_unmatched_files: false
+      - name: Upload Windows downloads
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: |
+          $files = @('dg-windows.exe', 'dg-windows.zip')
+          if (Test-Path 'dg-portable.exe') { $files += 'dg-portable.exe' }
+          gh release upload $env:RELEASE_TAG @files --repo $env:GITHUB_REPOSITORY --clobber
