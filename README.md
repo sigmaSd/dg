@@ -75,6 +75,17 @@ applies to files, folders, or both, and reorder or remove actions. Press
 **Save** to apply the list. Enter runs the first action that applies to the
 current path.
 
+### Running terminal commands on Linux
+
+Turn on **Terminal** in **Preferences → Plugins**, then try `!ls -la`. DG shows
+the command before running it. Press **Enter** to open a terminal in your home
+folder, run the command, and leave an interactive shell open afterward. Quotes,
+pipes, and redirects work as they do in your shell.
+
+Open **Terminal → Settings** to choose an installed terminal or the system
+default, change the shell executable, or customize the shortcut. The default `!`
+goes directly before the command. A custom word shortcut is followed by a space.
+
 ## AI Assistant
 
 DG includes an AI assistant powered by OpenCode. This feature is completely

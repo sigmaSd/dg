@@ -16,11 +16,18 @@ import {
   type Window,
 } from "@sigmasd/gtk/gtk4";
 import type { PluginControl } from "../loader.ts";
+import { terminalShortcut } from "../plugins/core/terminal.ts";
 import { createIcon } from "./choice-picker.ts";
 
 export interface PluginPreferencesPage {
   icon: string;
   create: (window: Window, setBusy: (busy: boolean) => void) => Widget;
+}
+
+function triggerDescription(plugin: PluginControl, value: string): string {
+  return plugin.key === "core:terminal" && value === terminalShortcut
+    ? `Type ${value} before a shell command`
+    : `Type ${value} followed by a space`;
 }
 
 export function openPreferences(
@@ -132,7 +139,7 @@ export function openPreferences(
       text.append(description);
     }
     const trigger = plugin.trigger &&
-      new Label(`Type ${plugin.trigger} followed by a space`);
+      new Label(triggerDescription(plugin, plugin.trigger));
     if (trigger) {
       trigger.setXalign(0);
       trigger.setWrap(true);
@@ -163,7 +170,7 @@ export function openPreferences(
             body.append(
               createTriggerEditor(plugin.trigger, setBusy, async (value) => {
                 await setTrigger(plugin.key, value);
-                trigger.setText(`Type ${value} followed by a space`);
+                trigger.setText(triggerDescription(plugin, value));
               }),
             );
             if (page) body.append(page.create(window, setBusy));

@@ -29,14 +29,19 @@ import { PluginLoader } from "./loader.ts";
 import { SimpleAction } from "@sigmasd/gtk/gio";
 import { AiSource } from "./plugins/core/ai.ts";
 import { isPathQuery } from "./plugins/core/paths.ts";
+import { terminalCommand } from "./plugins/core/terminal.ts";
 import { readClipboard } from "./utils/clipboard.ts";
 import { Fzf } from "fzf";
 import type { CachedModel, OpencodeConfig } from "./config.ts";
 import { createIcon } from "./ui/choice-picker.ts";
 import { createGtkDesktopLaunch } from "./ui/desktop-launch.ts";
 import { createPathPreferences } from "./ui/path-preferences.ts";
-import { openPreferences } from "./ui/preferences.ts";
+import {
+  openPreferences,
+  type PluginPreferencesPage,
+} from "./ui/preferences.ts";
 import { createAiPreferences } from "./ui/ai-preferences.ts";
+import { createTerminalPreferences } from "./ui/terminal-preferences.ts";
 
 const APP_ID = "io.github.sigmasd.dg";
 const APP_FLAGS = 0;
@@ -68,6 +73,7 @@ class DGApp {
   #aiSource?: AiSource;
   #currentResults: SearchResult[] = [];
   #currentResultsQuery?: string;
+  #runningTerminalCommand = false;
   #latestSearchId = 0;
   #debounceTimer: ReturnType<typeof setTimeout> | null = null;
   #aiMode = false;
@@ -310,34 +316,50 @@ class DGApp {
     }
     this.#openingPreferences = true;
     const paths = this.#loader.pathSource;
+    const terminal = this.#loader.terminalSource;
     try {
-      const aiConfig = await this.#loader.configManager.getOpencodeConfig();
+      const [aiConfig, terminalPreferences] = await Promise.all([
+        this.#loader.configManager.getOpencodeConfig(),
+        terminal?.preferences(),
+      ]);
       if (!this.#win) return;
+      const pages = new Map<string, PluginPreferencesPage>([
+        [`core:${paths.id}`, {
+          icon: "folder-symbolic",
+          create: (window, setBusy) =>
+            createPathPreferences(window, paths, setBusy, () => {
+              const query = this.#searchEntry?.getText() ?? "";
+              if (!this.#aiMode && !this.#modelMode && isPathQuery(query)) {
+                void this.#updateSearch(query);
+              }
+            }),
+        }],
+        ["core:ai", {
+          icon: "applications-science-symbolic",
+          create: (_window, setBusy) =>
+            createAiPreferences(
+              aiConfig,
+              setBusy,
+              (settings) => this.#saveAiSettings(settings),
+            ),
+        }],
+      ]);
+      if (terminal && terminalPreferences) {
+        pages.set(`core:${terminal.id}`, {
+          icon: "utilities-terminal-symbolic",
+          create: (_window, setBusy) =>
+            createTerminalPreferences(
+              terminalPreferences,
+              setBusy,
+              (settings) => terminal.saveSettings(settings),
+            ),
+        });
+      }
       this.#preferences = openPreferences(
         this.#win,
         this.#app,
         this.#loader.controls,
-        new Map([
-          [`core:${paths.id}`, {
-            icon: "folder-symbolic",
-            create: (window, setBusy) =>
-              createPathPreferences(window, paths, setBusy, () => {
-                const query = this.#searchEntry?.getText() ?? "";
-                if (!this.#aiMode && !this.#modelMode && isPathQuery(query)) {
-                  void this.#updateSearch(query);
-                }
-              }),
-          }],
-          ["core:ai", {
-            icon: "applications-science-symbolic",
-            create: (_window, setBusy) =>
-              createAiPreferences(
-                aiConfig,
-                setBusy,
-                (settings) => this.#saveAiSettings(settings),
-              ),
-          }],
-        ]),
+        pages,
         (key, enabled, window) => this.#loader.setEnabled(key, enabled, window),
         async (key, trigger) => {
           const prefix = this.#aiPrefix();
@@ -420,7 +442,7 @@ class DGApp {
       }
       const query = this.#searchEntry?.getText() || "";
       const aiPrefix = this.#aiPrefix();
-      if (isPathQuery(query)) {
+      if (isPathQuery(query) || this.#terminalCommand(query) !== undefined) {
         void this.#activateSearch(query);
         return;
       }
@@ -1021,9 +1043,15 @@ class DGApp {
     return this.#plugins.find((plugin) => plugin.trigger === trigger);
   }
 
+  #terminalCommand(query: string): string | undefined {
+    const trigger = this.#loader.terminalTrigger;
+    if (trigger) return terminalCommand(query, trigger);
+  }
+
   #updateSearch(query: string) {
     const searchId = ++this.#latestSearchId;
     const pathQuery = isPathQuery(query);
+    const command = this.#terminalCommand(query);
     const t0 = DEBUG ? performance.now() : 0;
     this.#setLoading(false);
     this.#searchMessage?.setVisible(false);
@@ -1103,7 +1131,18 @@ class DGApp {
     };
 
     handleResults([]);
-    if (pathQuery) {
+    if (command !== undefined) {
+      const source = this.#loader.terminalSource;
+      if (!source || !this.#plugins.includes(source)) {
+        showMessage("Enable Terminal in Preferences to run shell commands.");
+        return;
+      }
+      if (!command.trim()) {
+        showMessage("Type a shell command.");
+        return;
+      }
+      return source.search(command).then(handleResults);
+    } else if (pathQuery) {
       const source = this.#loader.pathSource;
       if (!this.#plugins.includes(source)) return;
       return source.lookup(query).then(({ results, message }) => {
@@ -1229,8 +1268,16 @@ class DGApp {
     ) return;
     if (index >= 0 && index < this.#currentResults.length) {
       const result = this.#currentResults[index];
+      const query = this.#searchEntry?.getText() ?? "";
+      const terminal = !this.#modelMode &&
+        this.#terminalCommand(query) !== undefined;
+      if (terminal && this.#runningTerminalCommand) return;
+      if (terminal) this.#runningTerminalCommand = true;
       try {
         await result.onActivate();
+        if (terminal && this.#searchEntry?.getText() === query) {
+          this.#searchEntry.setText("");
+        }
         this.#win?.setVisible(false);
       } catch (e) {
         console.error("Activation failed:", e);
@@ -1239,6 +1286,8 @@ class DGApp {
           `Error: ${e instanceof Error ? e.message : String(e)}`,
         );
         setTimeout(() => this.#setLoading(false), 3000);
+      } finally {
+        if (terminal) this.#runningTerminalCommand = false;
       }
     }
   }

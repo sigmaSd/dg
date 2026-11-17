@@ -15,6 +15,7 @@ import { CalculatorSource } from "./plugins/core/calculator.ts";
 import { AiSource } from "./plugins/core/ai.ts";
 import { SearchSource } from "./plugins/core/search.ts";
 import { type FileManagerStartupId, PathSource } from "./plugins/core/paths.ts";
+import { TerminalSource } from "./plugins/core/terminal.ts";
 import type { openUrl } from "./utils/open-url.ts";
 
 const settingsId = "plugin-states";
@@ -47,6 +48,7 @@ export class PluginLoader {
   #configManager = new ConfigManager();
   #appSource: AppSource;
   #pathSource: PathSource;
+  #terminalSource?: TerminalSource;
   #registrations = new Map<string, Registration>();
   #overrides = new Map<string, boolean>();
   #triggers = new Map<string, string>();
@@ -68,6 +70,9 @@ export class PluginLoader {
       this.#configManager,
       launch.fileManagerStartupId,
     );
+    if (Deno.build.os === "linux") {
+      this.#terminalSource = new TerminalSource(this.#configManager);
+    }
     this.#onChanged = onChanged;
     this.#openUrl = launch.openUrl;
   }
@@ -78,6 +83,16 @@ export class PluginLoader {
 
   get pathSource() {
     return this.#pathSource;
+  }
+
+  get terminalSource() {
+    return this.#terminalSource;
+  }
+
+  get terminalTrigger(): string | undefined {
+    return this.#terminalSource &&
+      (this.#triggers.get(`core:${this.#terminalSource.id}`) ??
+        this.#terminalSource.trigger);
   }
 
   get controls(): PluginControl[] {
@@ -137,6 +152,7 @@ export class PluginLoader {
     };
     register(this.#appSource);
     if (Deno.build.os === "linux") register(this.#pathSource);
+    if (this.#terminalSource) register(this.#terminalSource, false);
     register(new FirefoxSource(this.#openUrl));
     register(
       new StoreSource(
