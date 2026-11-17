@@ -6,12 +6,34 @@ import type { ConfigManager } from "../../config.ts";
 import type { SearchResult, Source } from "../interface.ts";
 
 const terminals = [
-  { id: "xdg-terminal-exec", title: "XDG Default Terminal", args: ["--"] },
-  { id: "ptyxis", title: "Ptyxis", args: ["--new-window", "--"] },
-  { id: "gnome-terminal", title: "GNOME Terminal", args: ["--"] },
-  { id: "konsole", title: "Konsole", args: ["-e"] },
-  { id: "xfce4-terminal", title: "Xfce Terminal", args: ["-x"] },
-  { id: "xterm", title: "XTerm", args: ["-e"] },
+  {
+    id: "xdg-terminal-exec",
+    title: "XDG Default Terminal",
+    args: (directory: string) => [`--dir=${directory}`, "--"],
+  },
+  {
+    id: "ptyxis",
+    title: "Ptyxis",
+    args: (
+      directory: string,
+    ) => ["--new-window", `--working-directory=${directory}`, "--"],
+  },
+  {
+    id: "gnome-terminal",
+    title: "GNOME Terminal",
+    args: (directory: string) => [`--working-directory=${directory}`, "--"],
+  },
+  {
+    id: "konsole",
+    title: "Konsole",
+    args: (directory: string) => ["--workdir", directory, "-e"],
+  },
+  {
+    id: "xfce4-terminal",
+    title: "Xfce Terminal",
+    args: (directory: string) => [`--working-directory=${directory}`, "-x"],
+  },
+  { id: "xterm", title: "XTerm", args: () => ["-e"] },
 ] as const;
 
 type TerminalId = typeof terminals[number]["id"];
@@ -22,6 +44,20 @@ export interface TerminalSettings {
 }
 
 export const terminalShortcut = "!";
+
+// Keep the terminal's child alive until the user dismisses the command output.
+const commandWithPause = `
+trap ':' INT
+if "$1" -i -c "$2"; then
+  status=0
+else
+  status=$?
+fi
+trap - INT
+printf '\\nCommand exited with status %s. Press Enter to close.\\n' "$status"
+IFS= read -r ignored_input || :
+exit "$status"
+`;
 
 export function terminalCommand(
   query: string,
@@ -150,16 +186,13 @@ export class TerminalSource implements Source {
       const executable = await findExecutable(adapter.id);
       if (!executable) continue;
 
-      // The user's command remains a single argument even when it contains shell syntax.
-      const wrapper = 'cd "$1" || exit; "$2" -i -c "$3"; exec "$2" -i';
       const child = new Deno.Command(executable, {
         args: [
-          ...adapter.args,
+          ...adapter.args(home),
           "/bin/sh",
           "-c",
-          wrapper,
+          commandWithPause,
           "dg-terminal",
-          home,
           shellPath,
           command,
         ],

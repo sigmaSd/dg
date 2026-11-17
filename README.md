@@ -79,8 +79,9 @@ current path.
 
 Turn on **Terminal** in **Preferences → Plugins**, then try `!ls -la`. DG shows
 the command before running it. Press **Enter** to open a terminal in your home
-folder, run the command, and leave an interactive shell open afterward. Quotes,
-pipes, and redirects work as they do in your shell.
+folder and run the command. The output stays visible after the command ends.
+Press **Enter** in the terminal to close it. Quotes, pipes, and redirects work
+as they do in your shell.
 
 Open **Terminal → Settings** to choose an installed terminal or the system
 default, change the shell executable, or customize the shortcut. The default `!`
