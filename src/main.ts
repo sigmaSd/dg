@@ -28,6 +28,7 @@ import type { SearchResult, Source } from "./plugins/interface.ts";
 import { PluginLoader } from "./loader.ts";
 import { SimpleAction } from "@sigmasd/gtk/gio";
 import { AiSource } from "./plugins/core/ai.ts";
+import { FileSearchError } from "./plugins/core/file-search.ts";
 import { isPathQuery } from "./plugins/core/paths.ts";
 import { terminalCommand } from "./plugins/core/terminal.ts";
 import { readClipboard } from "./utils/clipboard.ts";
@@ -75,6 +76,11 @@ class DGApp {
   #currentResultsQuery?: string;
   #runningTerminalCommand = false;
   #latestSearchId = 0;
+  #pendingTriggeredSearch?: {
+    query: string;
+    controller: AbortController;
+    done: Promise<void>;
+  };
   #debounceTimer: ReturnType<typeof setTimeout> | null = null;
   #aiMode = false;
   #aiText = "";
@@ -217,6 +223,7 @@ class DGApp {
   }
 
   async #cleanupAndExit(): Promise<void> {
+    this.#cancelTriggeredSearch();
     this.#aiSource?.clearConversation();
     this.#modelFetch?.abort();
 
@@ -424,6 +431,7 @@ class DGApp {
     this.#searchEntry = new Entry();
     this.#resetPlaceholder();
     this.#searchEntry.onChanged(() => {
+      this.#cancelTriggeredSearch();
       ++this.#latestSearchId;
       this.#currentResultsQuery = undefined;
       this.#searchMessage?.setVisible(false);
@@ -1048,7 +1056,13 @@ class DGApp {
     if (trigger) return terminalCommand(query, trigger);
   }
 
+  #cancelTriggeredSearch() {
+    this.#pendingTriggeredSearch?.controller.abort();
+    this.#pendingTriggeredSearch = undefined;
+  }
+
   #updateSearch(query: string) {
+    this.#cancelTriggeredSearch();
     const searchId = ++this.#latestSearchId;
     const pathQuery = isPathQuery(query);
     const command = this.#terminalCommand(query);
@@ -1155,8 +1169,12 @@ class DGApp {
     } else if (triggeredPlugin) {
       // Specific plugin search - fire async
       this.#setLoading(true, `Searching ${triggeredPlugin.id}...`);
-      return Promise.resolve().then(() => triggeredPlugin.search(args)).then(
+      const controller = new AbortController();
+      const done = Promise.resolve().then(() =>
+        triggeredPlugin.search(args, controller.signal)
+      ).then(
         (results) => {
+          if (controller.signal.aborted) return;
           handleResults(results);
           if (!results.length) {
             showMessage(
@@ -1167,9 +1185,21 @@ class DGApp {
           }
         },
       ).catch((error) => {
+        if (controller.signal.aborted) return;
+        if (error instanceof FileSearchError) {
+          showMessage(error.message);
+          return;
+        }
         console.error(`Search failed for ${triggeredPlugin.id}:`, error);
         showMessage(`Could not search ${triggeredPlugin.name}.`);
-      }).finally(handleDone);
+      }).finally(() => {
+        if (this.#pendingTriggeredSearch?.controller === controller) {
+          this.#pendingTriggeredSearch = undefined;
+          handleDone();
+        }
+      });
+      this.#pendingTriggeredSearch = { query, controller, done };
+      return done;
     } else {
       // Global search - fire all at once, no blocking
       const globalPlugins = this.#plugins.filter((p) => !p.trigger);
@@ -1253,10 +1283,21 @@ class DGApp {
       this.#debounceTimer = null;
     }
     if (this.#aiMode) this.#exitAiMode();
-    if (query !== this.#currentResultsQuery || !this.#currentResults.length) {
-      await this.#updateSearch(query);
+    const pending = this.#pendingTriggeredSearch;
+    let done: Promise<void> | undefined;
+    if (pending?.query === query) {
+      done = pending.done;
+    } else if (
+      query !== this.#currentResultsQuery || !this.#currentResults.length
+    ) {
+      done = this.#updateSearch(query);
     }
-    if (!this.#modelMode && this.#searchEntry?.getText() === query) {
+    const searchId = this.#latestSearchId;
+    if (done) await done;
+    if (
+      searchId === this.#latestSearchId && !this.#modelMode &&
+      this.#searchEntry?.getText() === query
+    ) {
       await this.#activateResult(0);
     }
   }

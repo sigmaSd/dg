@@ -14,6 +14,7 @@ import { StoreSource } from "./plugins/core/store.ts";
 import { CalculatorSource } from "./plugins/core/calculator.ts";
 import { AiSource } from "./plugins/core/ai.ts";
 import { SearchSource } from "./plugins/core/search.ts";
+import { FileSearchSource, findFd } from "./plugins/core/file-search.ts";
 import { type FileManagerStartupId, PathSource } from "./plugins/core/paths.ts";
 import { TerminalSource } from "./plugins/core/terminal.ts";
 import type { openUrl } from "./utils/open-url.ts";
@@ -29,6 +30,7 @@ export interface PluginControl {
   trigger?: string;
   enabled: boolean;
   error?: string;
+  unavailableReason?: string;
 }
 
 interface Registration {
@@ -134,9 +136,13 @@ export class PluginLoader {
       }
     }
     const config = await this.#configManager.read();
-    const register = (source: Source, defaultEnabled = true) => {
+    const register = (
+      source: Source,
+      defaultEnabled = true,
+      unavailableReason?: string,
+    ) => {
       const key = `core:${source.id}`;
-      this.#registrations.set(key, {
+      const registration: Registration = {
         control: {
           key,
           title: source.name,
@@ -145,10 +151,13 @@ export class PluginLoader {
             ? this.#triggers.get(key) ?? source.trigger
             : undefined,
           enabled: false,
+          unavailableReason,
         },
         defaultEnabled,
         create: () => source,
-      });
+      };
+      this.#registrations.set(key, registration);
+      return registration;
     };
     register(this.#appSource);
     if (Deno.build.os === "linux") register(this.#pathSource);
@@ -179,6 +188,19 @@ export class PluginLoader {
       await this.#startIfEnabled(registration, window);
     }
     await this.#syncExtensions(config.plugins, window);
+    if (Deno.build.os === "linux") {
+      const command = await findFd();
+      const source = new FileSearchSource(
+        command,
+        (path, isDirectory) => this.#pathSource.openPath(path, isDirectory),
+      );
+      const registration = register(
+        source,
+        true,
+        command ? undefined : "Install fd (fdfind) and restart DG to enable.",
+      );
+      await this.#startIfEnabled(registration, window);
+    }
     return this.activeSources;
   }
 
@@ -186,6 +208,9 @@ export class PluginLoader {
     return this.#queueChange(async () => {
       const registration = this.#registrations.get(key);
       if (!registration) throw new Error("This plugin is no longer installed.");
+      if (enabled && registration.control.unavailableReason) {
+        throw new Error(registration.control.unavailableReason);
+      }
       if (registration.control.enabled === enabled) return;
 
       const source = enabled
@@ -262,7 +287,7 @@ export class PluginLoader {
   async #startIfEnabled(registration: Registration, window?: Window) {
     const enabled = this.#overrides.get(registration.control.key) ??
       registration.defaultEnabled;
-    if (!enabled) return;
+    if (!enabled || registration.control.unavailableReason) return;
     try {
       this.#setSource(registration, await this.#start(registration, window));
     } catch (error) {

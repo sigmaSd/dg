@@ -52,6 +52,11 @@ export function isPathQuery(query: string): boolean {
     (isAbsolute(query) || query === "~" || query.startsWith("~/"));
 }
 
+export function expandHomePath(path: string, home = homedir()): string {
+  if (path === "~") return home;
+  return path.startsWith("~/") ? `${home}/${path.slice(2)}` : path;
+}
+
 function runCommand(command: string, args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: "ignore" });
@@ -138,11 +143,7 @@ export class PathSource implements Source {
     query: string,
   ): Promise<{ results: SearchResult[]; message?: string }> {
     if (!isPathQuery(query)) return { results: [] };
-    const path = query === "~"
-      ? homedir()
-      : query.startsWith("~/")
-      ? `${homedir()}/${query.slice(2)}`
-      : query;
+    const path = expandHomePath(query);
     const info = await stat(path).catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT" || error.code === "ENOTDIR") return undefined;
       throw error;
@@ -186,9 +187,7 @@ export class PathSource implements Source {
           score,
           onActivate: action.kind === "reveal"
             ? () => this.#revealPath(path)
-            : target === "folders"
-            ? () => this.#openFolder(path)
-            : () => runCommand("gio", ["open", path]),
+            : () => this.openPath(path, target === "folders"),
         });
       }
     }
@@ -198,6 +197,12 @@ export class PathSource implements Source {
         ? "No configured actions apply to this path."
         : undefined,
     };
+  }
+
+  openPath(path: string, isDirectory: boolean): Promise<void> {
+    return isDirectory
+      ? this.#openFolder(path)
+      : runCommand("gio", ["open", path]);
   }
 
   async #openFolder(path: string, desktopFile?: string): Promise<void> {

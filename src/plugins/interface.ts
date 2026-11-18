@@ -92,8 +92,9 @@ export interface Source {
   /**
    * Searches the source for the given query.
    * @param query The search string entered by the user
+   * @param signal Allows a source to cancel work when the search is superseded
    */
-  search(query: string): Promise<SearchResult[]>;
+  search(query: string, signal?: AbortSignal): Promise<SearchResult[]>;
   /**
    * Cleanup resources when the application shuts down.
    */

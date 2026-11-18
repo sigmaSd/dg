@@ -1,8 +1,7 @@
-import { constants } from "node:fs";
-import { access, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { delimiter, isAbsolute, join } from "node:path";
+import { isAbsolute } from "node:path";
 import type { ConfigManager } from "../../config.ts";
+import { findExecutable } from "../../utils/find-executable.ts";
 import type { SearchResult, Source } from "../interface.ts";
 
 const terminals = [
@@ -65,26 +64,6 @@ export function terminalCommand(
 ): string | undefined {
   const prefix = trigger === terminalShortcut ? trigger : `${trigger} `;
   if (query.startsWith(prefix)) return query.slice(prefix.length);
-}
-
-async function findExecutable(executable: string): Promise<string | undefined> {
-  const paths = isAbsolute(executable)
-    ? [executable]
-    : (Deno.env.get("PATH") ?? "").split(delimiter).filter(isAbsolute).map((
-      dir,
-    ) => join(dir, executable));
-  for (const path of paths) {
-    try {
-      if (!(await stat(path)).isFile()) continue;
-      await access(path, constants.X_OK);
-      return path;
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== "ENOENT" && code !== "ENOTDIR" && code !== "EACCES") {
-        throw error;
-      }
-    }
-  }
 }
 
 export class TerminalSource implements Source {

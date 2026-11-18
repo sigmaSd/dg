@@ -138,7 +138,7 @@ export function openPreferences(
       description.addCssClass("dim-label");
       text.append(description);
     }
-    const trigger = plugin.trigger &&
+    const trigger = !plugin.unavailableReason && plugin.trigger &&
       new Label(triggerDescription(plugin, plugin.trigger));
     if (trigger) {
       trigger.setXalign(0);
@@ -147,12 +147,14 @@ export function openPreferences(
       text.append(trigger);
     }
     const startupError = new Label(
-      plugin.error ? `Could not start: ${plugin.error}` : "",
+      plugin.error
+        ? `Could not start: ${plugin.error}`
+        : plugin.unavailableReason ?? "",
     );
     startupError.setXalign(0);
     startupError.setWrap(true);
-    startupError.addCssClass("error");
-    startupError.setVisible(Boolean(plugin.error));
+    startupError.addCssClass(plugin.error ? "error" : "dim-label");
+    startupError.setVisible(Boolean(plugin.error || plugin.unavailableReason));
     text.append(startupError);
     box.append(text);
 
@@ -198,6 +200,7 @@ export function openPreferences(
     }
     const toggle = new Switch();
     toggle.setActive(plugin.enabled);
+    toggle.setSensitive(!plugin.unavailableReason);
     toggle.setTooltipText(`Enable ${plugin.title}`);
     toggle.setValign(Align.CENTER);
     box.append(toggle);

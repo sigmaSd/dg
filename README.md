@@ -75,6 +75,17 @@ applies to files, folders, or both, and reorder or remove actions. Press
 **Save** to apply the list. Enter runs the first action that applies to the
 current path.
 
+### Finding files and folders on Linux
+
+Type `p <name>` to search your home folder and its subfolders. For example,
+`p tax 2025` finds names containing both words in any order, regardless of case.
+Use `p ~/Documents/ tax 2025` to search within a specific folder, and quote a
+folder path if it contains spaces. Results show the parent folder and open with
+the default app. Hidden files and folders are skipped.
+
+**File Search** requires `fd` (also known as `fdfind`). DG disables the plugin
+if it can't find the executable when it starts.
+
 ### Running terminal commands on Linux
 
 Turn on **Terminal** in **Preferences → Plugins**, then try `!ls -la`. DG shows
