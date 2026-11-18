@@ -182,3 +182,15 @@ export default class MyPlugin extends WorkerPlugin {
   }
 }
 ```
+
+## Release dependency checks
+
+Run these checks from the repository root before publishing.
+
+```sh
+deno outdated --frozen
+deno audit --frozen
+```
+
+Review available updates and security advisories. After changing dependencies,
+rerun `deno test --frozen test/` and commit the updated `deno.lock`.

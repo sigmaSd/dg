@@ -4,11 +4,12 @@
     "jsr:@sigma/deno-compat@0.23.0": "0.23.0",
     "jsr:@sigmasd/gtk@0.68.1": "0.68.1",
     "jsr:@std/assert@^1.0.19": "1.0.19",
-    "jsr:@std/fs@1.0.23": "1.0.23",
+    "jsr:@std/fs@1.0.24": "1.0.24",
     "jsr:@std/internal@^1.0.12": "1.0.14",
     "jsr:@std/internal@^1.0.14": "1.0.14",
     "jsr:@std/path@^1.1.4": "1.1.6",
-    "npm:@opencode-ai/sdk@1.4.2": "1.4.2",
+    "jsr:@std/path@^1.1.5": "1.1.6",
+    "npm:@opencode-ai/sdk@1.19.6": "1.19.6",
     "npm:fzf@~0.5.2": "0.5.2"
   },
   "jsr": {
@@ -27,11 +28,11 @@
         "jsr:@std/internal@^1.0.12"
       ]
     },
-    "@std/fs@1.0.23": {
-      "integrity": "3ecbae4ce4fee03b180fa710caff36bb5adb66631c46a6460aaad49515565a37",
+    "@std/fs@1.0.24": {
+      "integrity": "f3061b45b81673a2bece689da041df32d174be064c89eb6397fb5718d3fb7877",
       "dependencies": [
-        "jsr:@std/internal@^1.0.12",
-        "jsr:@std/path"
+        "jsr:@std/internal@^1.0.14",
+        "jsr:@std/path@^1.1.5"
       ]
     },
     "@std/internal@1.0.14": {
@@ -45,8 +46,8 @@
     }
   },
   "npm": {
-    "@opencode-ai/sdk@1.4.2": {
-      "integrity": "sha512-JyF6Uk1zy1gG/EFPigTi3IwabnIDzdfX7NukLzAhABXFP/nSnYCSmMB91F1Cqgr9RURe9hs4ZWRLjWp2ta66JA==",
+    "@opencode-ai/sdk@1.19.6": {
+      "integrity": "sha512-jYV7s+Tlc5jDILOyWFIgISkPlfk7z3ByqeC8/T9aESZBgSZosQR784U2UoM3ZrJ8S0LJ2cB+IA9xZN7Jj8tnhQ==",
       "dependencies": [
         "cross-spawn"
       ]
@@ -89,9 +90,9 @@
     "dependencies": [
       "jsr:@sigmasd/gtk@0.68.1",
       "jsr:@std/assert@^1.0.19",
-      "jsr:@std/fs@1.0.23",
+      "jsr:@std/fs@1.0.24",
       "jsr:@std/path@^1.1.4",
-      "npm:@opencode-ai/sdk@1.4.2",
+      "npm:@opencode-ai/sdk@1.19.6",
       "npm:fzf@~0.5.2"
     ]
   }
