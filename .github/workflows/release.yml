@@ -53,7 +53,7 @@ jobs:
 
       - name: Build binary
         run: |
-          deno compile --allow-all --no-prompt --unstable-kv --unstable-worker-options --include src/plugins/worker/client.ts --output ${{ matrix.output }} --target ${{ matrix.target }} src/main.ts
+          deno compile --frozen --minimum-dependency-age=0 --allow-all --no-prompt --unstable-kv --unstable-worker-options --include src/plugins/worker/client.ts --output ${{ matrix.output }} --target ${{ matrix.target }} src/main.ts
 
       - name: Upload binary
         if: startsWith(github.ref, 'refs/tags/v')
@@ -86,7 +86,7 @@ jobs:
 
       - name: Build binary
         run: |
-          deno compile --allow-all --no-prompt --unstable-kv --unstable-worker-options --include src/plugins/worker/client.ts --output dg-windows.exe --target x86_64-pc-windows-msvc src/main.ts
+          deno compile --frozen --minimum-dependency-age=0 --allow-all --no-prompt --unstable-kv --unstable-worker-options --include src/plugins/worker/client.ts --output dg-windows.exe --target x86_64-pc-windows-msvc src/main.ts
 
       - name: Package Windows downloads
         shell: msys2 {0}
