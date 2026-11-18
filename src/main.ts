@@ -33,7 +33,8 @@ import { isPathQuery } from "./plugins/core/paths.ts";
 import { terminalCommand } from "./plugins/core/terminal.ts";
 import { readClipboard } from "./utils/clipboard.ts";
 import { Fzf } from "fzf";
-import type { CachedModel, OpencodeConfig } from "./config.ts";
+import type { OpencodeConfig } from "./config.ts";
+import type { OpencodeModel } from "./plugins/core/opencode.ts";
 import { createIcon } from "./ui/choice-picker.ts";
 import { createGtkDesktopLaunch } from "./ui/desktop-launch.ts";
 import { createPathPreferences } from "./ui/path-preferences.ts";
@@ -88,9 +89,9 @@ class DGApp {
 
   #modelMode = false;
   #modelFilterFree = false;
-  #modelList: CachedModel[] = [];
+  #modelList: OpencodeModel[] = [];
   #modelFetch?: AbortController;
-  #fuse: Fzf<CachedModel[]> | null = null;
+  #fuse: Fzf<OpencodeModel[]> | null = null;
 
   #aiAbortController?: AbortController;
   #savedAiMode = false;
@@ -172,6 +173,8 @@ class DGApp {
     );
     if (previousAi && !ai) {
       this.#modelFetch?.abort();
+      this.#modelList = [];
+      this.#fuse = null;
       this.#savedAiMode = false;
       if (this.#modelMode) this.#exitModelMode();
       if (this.#aiMode || this.#aiAbortController) this.#exitAiMode();
@@ -343,8 +346,10 @@ class DGApp {
         }],
         ["core:ai", {
           icon: "applications-science-symbolic",
-          create: (_window, setBusy) =>
+          availableWhenDisabled: true,
+          create: (window, setBusy) =>
             createAiPreferences(
+              window,
               aiConfig,
               setBusy,
               (settings) => this.#saveAiSettings(settings),
@@ -392,8 +397,10 @@ class DGApp {
     await this.#loader.configManager.setOpencodeConfig(settings);
     if (!this.#aiSource) return;
     this.#aiAbortController?.abort();
+    this.#modelFetch?.abort();
     await this.#aiSource.destroy();
     await this.#aiSource.init();
+    void this.#fetchModels();
     if (this.#aiMode) {
       this.#setLoading(false);
       this.#updateAiPlaceholder();
@@ -608,18 +615,18 @@ class DGApp {
       list = list.filter((m) => m.isFree);
     }
 
-    let filtered: CachedModel[];
+    let filtered: OpencodeModel[];
     if (query) {
       const fzfInstance = this.#modelFilterFree
         ? new Fzf(list, {
-          selector: (m: CachedModel) =>
+          selector: (m: OpencodeModel) =>
             `${m.name} ${m.provider}/${m.id} ${m.provider} ${m.id}`,
         })
         : this.#fuse;
 
       if (fzfInstance) {
         const entries = fzfInstance.find(query);
-        filtered = entries.map((entry: { item: CachedModel }) => entry.item);
+        filtered = entries.map((entry: { item: OpencodeModel }) => entry.item);
       } else {
         filtered = [];
       }
@@ -635,29 +642,22 @@ class DGApp {
       subtitle: `${m.provider}/${m.id}${m.isFree ? " (free)" : ""}`,
       icon: "preferences-system-symbolic",
       score: 100,
-      onActivate: async () => {
-        this.#setLoading(true, `Switching to ${m.name}...`);
-        const success = await this.#aiSource?.setModel(`${m.provider}/${m.id}`);
-        this.#setLoading(false);
-        if (success) {
-          this.#statusLabel?.setText(`Model changed to ${m.name}`);
-          setTimeout(() => {
-            if (this.#statusLabel?.getText() === `Model changed to ${m.name}`) {
-              this.#statusLabel?.setText("");
-            }
-          }, 3000);
-        } else {
-          this.#statusLabel?.setText(`Failed to change model`);
-          setTimeout(() => {
-            if (this.#statusLabel?.getText() === `Failed to change model`) {
-              this.#statusLabel?.setText("");
-            }
-          }, 3000);
-        }
-        // When activating a model, we want to stay in the app and return to previous mode
-        this.#exitModelMode();
-      },
+      onActivate: () => this.#selectModel(`${m.provider}/${m.id}`, m.name),
     }));
+    if (
+      !this.#modelFilterFree &&
+      "opencode default".includes(query.trim().toLowerCase())
+    ) {
+      results.unshift({
+        title: "Use OpenCode default",
+        subtitle: this.#aiSource?.getDefaultModel() ??
+          "Use OpenCode’s configured model",
+        icon: "preferences-system-symbolic",
+        score: 100,
+        onActivate: () => this.#selectModel("", "OpenCode default"),
+      });
+      results.splice(40);
+    }
 
     if (searchId === this.#latestSearchId) {
       this.#currentResults = results;
@@ -665,67 +665,54 @@ class DGApp {
     }
   }
 
+  async #selectModel(model: string, name: string) {
+    this.#setLoading(true, `Switching to ${name}...`);
+    const success = await this.#aiSource?.setModel(model);
+    this.#exitModelMode();
+    this.#setLoading(
+      false,
+      success ? `Model changed to ${name}` : "Failed to change model",
+    );
+    if (this.#aiMode) this.#showModelInStatus();
+  }
+
   async #fetchModels() {
-    if (!this.#aiSource) return;
+    const source = this.#aiSource;
+    if (!source) return;
     this.#modelFetch?.abort();
     const controller = this.#modelFetch = new AbortController();
     const { signal } = controller;
-
     try {
-      const cached = await this.#loader.configManager.getCachedModels();
-      if (signal.aborted) return;
-      if (cached) {
-        this.#modelList = cached;
-        this.#fuse = new Fzf(this.#modelList, {
-          selector: (m: CachedModel) =>
-            `${m.name} ${m.provider}/${m.id} ${m.provider} ${m.id}`,
-        });
-      }
-
-      const resp = await fetch("https://models.dev/api.json", { signal });
-      const data = await resp.json();
-      if (signal.aborted) return;
-      const list: CachedModel[] = [];
-
-      for (const [providerId, providerData] of Object.entries(data)) {
-        // deno-lint-ignore no-explicit-any
-        const models = (providerData as any).models || {};
-        for (const [modelId, modelData] of Object.entries(models)) {
-          // deno-lint-ignore no-explicit-any
-          const m = modelData as any;
-          const name = m.name || modelId;
-          const isFree = modelId.toLowerCase().includes("free") &&
-            m.status !== "deprecated";
-
-          list.push({
-            id: modelId,
-            name,
-            provider: providerId,
-            isFree,
-          });
-        }
-      }
-
-      // Deduplicate and sort
-      this.#modelList = list.sort((a, b) =>
-        `${a.provider}/${a.id}`.localeCompare(`${b.provider}/${b.id}`)
-      );
-      this.#fuse = new Fzf(this.#modelList, {
-        selector: (m: CachedModel) =>
-          `${m.name} ${m.provider}/${m.id} ${m.provider} ${m.id}`,
+      const models = await source.listModels(signal);
+      if (signal.aborted || this.#aiSource !== source) return;
+      this.#modelList = models;
+      this.#fuse = new Fzf(models, {
+        selector: (m: OpencodeModel) => `${m.name} ${m.provider}/${m.id}`,
       });
-
-      // Update cache
-      await this.#loader.configManager.setCachedModels(this.#modelList);
-    } catch (e) {
-      if (!signal.aborted) console.error("Failed to fetch models:", e);
+      if (this.#modelMode) {
+        this.#updateModelSearch(this.#searchEntry?.getText() ?? "");
+        if (!models.length) {
+          this.#setLoading(false, "OpenCode reported no available models.");
+        }
+      } else if (this.#aiMode) {
+        this.#updateAiPlaceholder();
+        this.#showModelInStatus();
+      }
+    } catch (error) {
+      if (signal.aborted || this.#aiSource !== source) return;
+      if (this.#modelMode) {
+        this.#setLoading(
+          false,
+          error instanceof Error ? error.message : String(error),
+        );
+      }
     } finally {
       if (this.#modelFetch === controller) this.#modelFetch = undefined;
     }
   }
 
   async #enterModelMode() {
-    this.#savedAiMode = this.#aiMode;
+    if (!this.#modelMode) this.#savedAiMode = this.#aiMode;
     this.#modelMode = true;
     this.#aiMode = false; // Temporarily disable AI mode UI for picker
 
@@ -740,14 +727,11 @@ class DGApp {
       this.#searchEntry.grabFocus();
     }
 
+    this.#updateModelSearch("");
     if (this.#modelList.length === 0) {
       this.#setLoading(true, "Fetching models...");
-      await this.#fetchModels();
-      if (!this.#modelMode || !this.#aiSource) return;
-      this.#setLoading(false);
     }
-
-    this.#updateModelSearch("");
+    await this.#fetchModels();
   }
 
   #exitModelMode() {
@@ -867,7 +851,7 @@ class DGApp {
       onError: (error: string) => {
         if (signal.aborted) return;
         console.log("[Main] onError:", error);
-        this.#setLoading(true, `Error: ${error}`);
+        this.#setLoading(false, `Error: ${error}`);
       },
     };
 

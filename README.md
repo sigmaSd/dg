@@ -105,11 +105,8 @@ optional and opt-in.
 
 ### Prerequisites
 
-1. **Install OpenCode** (required for AI features):
-
-   ```bash
-   deno install -gfA 'npm:opencode-ai' --allow-scripts=npm:opencode-ai
-   ```
+1. **Install [OpenCode 2](https://opencode.ai/docs/)** for AI features. DG looks
+   for the executable on your `PATH` and in `~/.opencode/bin`.
 
 2. **Enable AI Assistant** in **Preferences → Plugins**. Its **Settings** page
    controls the trigger, OpenCode model, and tool access. You can also customize
@@ -129,9 +126,10 @@ optional and opt-in.
 
    The `tools` section controls which AI capabilities are enabled:
    - `read`, `grep`, `glob` - **Enabled by default** (read-only operations)
-   - `edit`, `write`, `bash`, `task` - **Disabled by default** (require explicit
-     enable)
-   - `external_directory` - Controls access to external directories
+   - `edit` and `write` share one OpenCode 2 permission. Enable both to allow
+     file changes.
+   - `bash`, `task` - **Disabled by default** (require explicit enable)
+   - `external_directory` - Controls access outside DG's AI workspace
 
 ### Usage
 
@@ -144,9 +142,11 @@ optional and opt-in.
    ai explain this $clipboard
    ```
 
-3. **Switch models**: Press `Ctrl+M` to open the model selector. You can search
-   for models using fuzzy search and filter between free and paid models. Models
-   are fetched from [models.dev](https://models.dev).
+3. **Switch models**: Open **Preferences → Plugins → AI Assistant → Settings**
+   to see OpenCode's default and browse available models. When AI Assistant is
+   enabled, `Ctrl+M` opens the launcher model picker and `Ctrl+Shift+M` filters
+   it to models with zero listed cost. Choose **Use OpenCode default** or leave
+   the model field blank to use OpenCode's default model.
 
 ## Plugin Development
 

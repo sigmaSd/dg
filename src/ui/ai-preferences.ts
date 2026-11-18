@@ -6,26 +6,28 @@ import {
   Label,
   Orientation,
   Switch,
+  type Window,
 } from "@sigmasd/gtk/gtk4";
 import {
-  defaultOpencodeModel,
   defaultOpencodeTools,
   type OpencodeConfig,
   type OpencodeToolsConfig,
 } from "../config.ts";
+import { Opencode } from "../plugins/core/opencode.ts";
+import { showChoicePicker } from "./choice-picker.ts";
 
-const toolNames: Record<keyof OpencodeToolsConfig, string> = {
+const toolNames: Record<Exclude<keyof OpencodeToolsConfig, "write">, string> = {
   read: "Read files",
   grep: "Search file contents",
   glob: "Find files by name",
-  edit: "Edit files",
-  write: "Write files",
+  edit: "Edit and write files",
   bash: "Run shell commands",
   task: "Start subagents",
   external_directory: "Access external directories",
 };
 
 export function createAiPreferences(
+  window: Window,
   settings: OpencodeConfig | undefined,
   setBusy: (busy: boolean) => void,
   save: (
@@ -42,16 +44,85 @@ export function createAiPreferences(
   modelLabel.setXalign(0);
   form.append(modelLabel);
   const model = new Entry();
-  model.setPlaceholderText("provider/model-id");
-  model.setTooltipText("OpenCode Model");
-  model.setText(settings?.model || defaultOpencodeModel);
-  form.append(model);
+  model.setPlaceholderText("OpenCode default");
+  model.setTooltipText("Use provider/model-id to override OpenCode’s default");
+  model.setText(settings?.model ?? "");
+  model.setHexpand(true);
+
+  const modelRow = new Box(Orientation.HORIZONTAL, 8);
+  modelRow.append(model);
+  const browse = new Button("Browse Models");
+  modelRow.append(browse);
+  form.append(modelRow);
+
+  const defaultLabel = new Label("");
+  defaultLabel.setXalign(0);
+  defaultLabel.setWrap(true);
+  defaultLabel.addCssClass("dim-label");
+  form.append(defaultLabel);
+
+  const controller = new AbortController();
+  const { signal } = controller;
+  window.onDestroy(() => controller.abort());
+  let catalogue: Awaited<ReturnType<Opencode["models"]>> | undefined;
+
+  const loadCatalogue = async () => {
+    browse.setSensitive(false);
+    defaultLabel.setText("Loading OpenCode models…");
+    try {
+      const opencode = await Opencode.open();
+      try {
+        catalogue = await opencode.models(signal);
+      } finally {
+        await opencode.close();
+      }
+      if (signal.aborted) return;
+      defaultLabel.setText(
+        catalogue.defaultModel
+          ? `OpenCode default · ${catalogue.defaultModel}`
+          : "OpenCode did not report a default model.",
+      );
+    } catch (error) {
+      if (!signal.aborted) {
+        defaultLabel.setText(
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    } finally {
+      if (!signal.aborted) browse.setSensitive(true);
+    }
+  };
+
+  browse.onClick(async () => {
+    if (!catalogue) await loadCatalogue();
+    if (!catalogue || signal.aborted || !form.isVisible()) return;
+    showChoicePicker(window, {
+      title: "OpenCode Models",
+      searchPlaceholder: "Search models…",
+      choices: [
+        {
+          id: "",
+          title: catalogue.defaultModel
+            ? `Use OpenCode default · ${catalogue.defaultModel}`
+            : "Use OpenCode default",
+        },
+        ...catalogue.models.map(({ id, provider, name, isFree }) => ({
+          id: `${provider}/${id}`,
+          title: `${name} · ${provider}/${id}${isFree ? " (free)" : ""}`,
+        })),
+      ],
+      onSelect: (choice) => {
+        if (!signal.aborted) model.setText(choice.id);
+      },
+    });
+  });
+  void loadCatalogue();
 
   const toolLabel = new Label("Tool Access");
   toolLabel.addCssClass("heading");
   toolLabel.setXalign(0);
   form.append(toolLabel);
-  const tools = { ...(settings?.tools ?? defaultOpencodeTools) };
+  const tools = { ...defaultOpencodeTools, ...settings?.tools };
   const controls = new Box(Orientation.VERTICAL, 6);
   form.append(controls);
 
@@ -69,16 +140,17 @@ export function createAiPreferences(
   };
   model.onChanged(changed);
 
-  for (const key of Object.keys(toolNames) as (keyof OpencodeToolsConfig)[]) {
+  for (const key of Object.keys(toolNames) as (keyof typeof toolNames)[]) {
     const row = new Box(Orientation.HORIZONTAL, 10);
     const label = new Label(toolNames[key]);
     label.setXalign(0);
     label.setHexpand(true);
     const toggle = new Switch();
-    toggle.setActive(Boolean(tools[key]));
+    toggle.setActive(key === "edit" ? tools.edit && tools.write : tools[key]);
     toggle.setTooltipText(toolNames[key]);
     toggle.onActivate(() => {
       tools[key] = toggle.getActive();
+      if (key === "edit") tools.write = tools.edit;
       changed();
     });
     row.append(label);
@@ -90,7 +162,7 @@ export function createAiPreferences(
 
   button.onClick(async () => {
     const value = model.getText().trim();
-    if (!/^[^/\s]+\/\S+$/.test(value)) {
+    if (value && !/^[^/\s]+\/\S+$/.test(value)) {
       status.addCssClass("error");
       status.setText("Use a model ID in provider/model-id format.");
       status.setVisible(true);

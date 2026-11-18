@@ -21,6 +21,7 @@ import { createIcon } from "./choice-picker.ts";
 
 export interface PluginPreferencesPage {
   icon: string;
+  availableWhenDisabled?: boolean;
   create: (window: Window, setBusy: (busy: boolean) => void) => Widget;
 }
 
@@ -158,13 +159,17 @@ export function openPreferences(
     text.append(startupError);
     box.append(text);
 
+    const canConfigure = () =>
+      Boolean(
+        trigger || page?.availableWhenDisabled || states.get(plugin.key),
+      );
     const options = (page || trigger) && new Button("Settings");
     if (options) {
       options.setValign(Align.CENTER);
-      options.setSensitive(Boolean(trigger) || plugin.enabled);
+      options.setSensitive(canConfigure());
       options.setTooltipText(`${plugin.title} Settings`);
       options.onClick(() => {
-        if (pendingChanges || (!trigger && !states.get(plugin.key))) return;
+        if (pendingChanges || !canConfigure()) return;
         let panel = panels.get(plugin.key);
         if (!panel) {
           if (trigger && plugin.trigger) {
@@ -218,7 +223,7 @@ export function openPreferences(
         await setEnabled(plugin.key, enabled, window);
         states.set(plugin.key, enabled);
         startupError.setVisible(false);
-        if (options) options.setSensitive(Boolean(trigger) || enabled);
+        if (options) options.setSensitive(canConfigure());
       } catch (error) {
         toggle.setActive(previous);
         const message = error instanceof Error ? error.message : String(error);
