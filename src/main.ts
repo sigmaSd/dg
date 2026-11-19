@@ -11,6 +11,7 @@ import {
   Button,
   Entry,
   HeaderBar,
+  Image,
   Label,
   ListBox,
   ListBoxRow,
@@ -27,15 +28,21 @@ import { EventLoop } from "@sigmasd/gtk/eventloop";
 import type { SearchResult, Source } from "./plugins/interface.ts";
 import { PluginLoader } from "./loader.ts";
 import { SimpleAction } from "@sigmasd/gtk/gio";
+import { G_TYPE_INT } from "@sigmasd/gtk/gobject";
 import { AiSource } from "./plugins/core/ai.ts";
 import { FileSearchError } from "./plugins/core/file-search.ts";
 import { isPathQuery } from "./plugins/core/paths.ts";
 import { terminalCommand } from "./plugins/core/terminal.ts";
 import { readClipboard } from "./utils/clipboard.ts";
 import { Fzf } from "fzf";
-import type { OpencodeConfig } from "./config.ts";
+import {
+  type AppearanceSettings,
+  defaultAppearance,
+  type OpencodeConfig,
+} from "./config.ts";
 import type { OpencodeModel } from "./plugins/core/opencode.ts";
 import { createIcon } from "./ui/choice-picker.ts";
+import { LauncherTheme, styleWindow } from "./ui/launcher-theme.ts";
 import { createGtkDesktopLaunch } from "./ui/desktop-launch.ts";
 import { createPathPreferences } from "./ui/path-preferences.ts";
 import {
@@ -63,11 +70,16 @@ class DGApp {
   #statusLabel?: Label;
   #spinner?: Spinner;
   #bottomBox?: Box;
+  #footer?: Box;
+  #layoutQueued = false;
+  #closing = false;
   #modelLabel?: Label;
   #scrolledWindow?: ScrolledWindow;
   #preferences?: ReturnType<typeof openPreferences>;
   #openingPreferences = false;
   #preferencesAction?: SimpleAction;
+  #appearance = defaultAppearance;
+  #theme = new LauncherTheme();
   #modelActions: SimpleAction[] = [];
 
   #loader: PluginLoader;
@@ -113,6 +125,7 @@ class DGApp {
     });
 
     this.#app.onActivate(() => {
+      if (this.#closing) return;
       if (this.#preferences) {
         this.#preferences.present();
         return;
@@ -159,7 +172,6 @@ class DGApp {
 
   async #initPlugins() {
     console.log("Loading plugins...");
-    this.#setLoading(true, "Loading plugins...");
     await this.#loader.loadPlugins(this.#win);
     this.#preferencesAction?.setProperty("enabled", true);
     this.#refreshPlugins();
@@ -190,6 +202,22 @@ class DGApp {
     }
   }
 
+  #queueLauncherLayout() {
+    if (this.#closing || this.#layoutQueued) return;
+    this.#layoutQueued = true;
+    setTimeout(() => {
+      this.#layoutQueued = false;
+      if (this.#closing || !this.#win) return;
+      const hasRows = Boolean(this.#listBox?.getFirstChild());
+      this.#scrolledWindow?.setVisible(hasRows);
+      this.#footer?.setVisible(
+        hasRows || Boolean(this.#bottomBox?.getVisible()),
+      );
+      const width = Number(this.#win.getProperty("default-width", G_TYPE_INT));
+      this.#win.setDefaultSize(width > 0 ? width : 640, hasRows ? -1 : 1);
+    }, 0);
+  }
+
   #setLoading(loading: boolean, message?: string) {
     if (this.#spinner) {
       this.#spinner.setVisible(loading);
@@ -200,6 +228,7 @@ class DGApp {
     if (this.#bottomBox) {
       this.#bottomBox.setVisible(loading || !!message);
     }
+    this.#queueLauncherLayout();
   }
 
   #showModelInStatus() {
@@ -211,6 +240,7 @@ class DGApp {
     if (this.#bottomBox) {
       this.#bottomBox.setVisible(true);
     }
+    this.#queueLauncherLayout();
   }
 
   #clearStatus() {
@@ -223,14 +253,20 @@ class DGApp {
     if (this.#bottomBox) {
       this.#bottomBox.setVisible(false);
     }
+    this.#queueLauncherLayout();
   }
 
   async #cleanupAndExit(): Promise<void> {
+    if (this.#closing) return;
+    this.#closing = true;
+    this.#preferences?.setVisible(false);
+    this.#win?.setVisible(false);
+    clearTimeout(this.#debounceTimer ?? undefined);
+    this.#debounceTimer = null;
+    ++this.#latestSearchId;
     this.#cancelTriggeredSearch();
     this.#aiSource?.clearConversation();
     this.#modelFetch?.abort();
-
-    this.#setLoading(true, "Closing...");
 
     for (const plugin of this.#plugins) {
       try {
@@ -239,8 +275,6 @@ class DGApp {
         console.error(`Error cleaning up plugin ${plugin.id}:`, e);
       }
     }
-
-    this.#setLoading(false);
 
     this.#preferences?.destroy();
     this.#preferences = undefined;
@@ -372,6 +406,11 @@ class DGApp {
         this.#app,
         this.#loader.controls,
         pages,
+        {
+          settings: this.#appearance,
+          preview: (settings) => this.#theme.preview(settings),
+          save: (settings) => this.#saveAppearance(settings),
+        },
         (key, enabled, window) => this.#loader.setEnabled(key, enabled, window),
         async (key, trigger) => {
           const prefix = this.#aiPrefix();
@@ -383,14 +422,23 @@ class DGApp {
             );
           }
         },
-        () => this.#preferences = undefined,
+        () => {
+          this.#win?.removeCssClass("dg-settings-open");
+          this.#preferences = undefined;
+        },
       );
+      this.#win.addCssClass("dg-settings-open");
     } catch (error) {
       console.error("Could not open Preferences:", error);
       this.#setLoading(false, "Could not open Preferences.");
     } finally {
       this.#openingPreferences = false;
     }
+  }
+
+  async #saveAppearance(settings: AppearanceSettings): Promise<void> {
+    await this.#loader.configManager.setAppearance(settings);
+    this.#appearance = settings;
   }
 
   async #saveAiSettings(settings: OpencodeConfig) {
@@ -415,33 +463,44 @@ class DGApp {
 
     this.#win = new AdwApplicationWindow(this.#app);
     this.#win.setTitle("DG");
-    this.#win.setDefaultSize(600, 500);
+    this.#win.setSizeRequest(360, -1);
+    this.#win.setDefaultSize(640, 1);
+    this.#theme.install(this.#win, this.#appearance);
 
     const toolbarView = new ToolbarView();
     const headerBar = new HeaderBar();
+    styleWindow(this.#win, toolbarView, headerBar);
+    headerBar.addCssClass("dg-launcher-header");
+    headerBar.setProperty("show-title-buttons", false);
     const preferences = new Button();
     preferences.setIconName("emblem-system-symbolic");
     preferences.setTooltipText("Preferences (Ctrl+,)");
     preferences.setProperty("action-name", "win.preferences");
-    headerBar.packEnd(preferences);
+    const close = new Button();
+    close.setIconName("window-close-symbolic");
+    close.setTooltipText("Close Launcher");
+    close.setProperty("action-name", "window.close");
     toolbarView.addTopBar(headerBar);
-
     const contentBox = new Box(Orientation.VERTICAL, 0);
 
-    // Search Entry
-    const searchBox = new Box(Orientation.VERTICAL, 0);
-    searchBox.setMarginTop(12);
-    searchBox.setMarginBottom(12);
-    searchBox.setMarginStart(12);
-    searchBox.setMarginEnd(12);
+    const searchField = new Box(Orientation.HORIZONTAL, 10);
+    searchField.addCssClass("dg-search-field");
+    searchField.setHexpand(true);
+    const searchIcon = new Image({ iconName: "system-search-symbolic" });
+    searchIcon.setPixelSize(18);
+    searchIcon.setValign(Align.CENTER);
+    searchField.append(searchIcon);
 
     this.#searchEntry = new Entry();
+    this.#searchEntry.addCssClass("dg-search-entry");
+    this.#searchEntry.setHexpand(true);
     this.#resetPlaceholder();
     this.#searchEntry.onChanged(() => {
       this.#cancelTriggeredSearch();
       ++this.#latestSearchId;
       this.#currentResultsQuery = undefined;
       this.#searchMessage?.setVisible(false);
+      this.#queueLauncherLayout();
       if (this.#debounceTimer !== null) {
         clearTimeout(this.#debounceTimer);
       }
@@ -499,6 +558,7 @@ class DGApp {
                 child = next;
               }
             }
+            this.#queueLauncherLayout();
             return;
           }
           void this.#enterAiMode(processedQuery);
@@ -509,25 +569,38 @@ class DGApp {
       }
     });
 
-    searchBox.append(this.#searchEntry);
+    searchField.append(this.#searchEntry);
+    const headerContent = new Box(Orientation.HORIZONTAL, 8);
+    headerContent.setHexpand(true);
+    headerContent.append(searchField);
+    headerContent.append(preferences);
+    headerContent.append(close);
+    headerBar.setProperty("title-widget", headerContent);
     this.#searchMessage = new Label("");
+    this.#searchMessage.addCssClass("dg-search-message");
     this.#searchMessage.setXalign(0);
     this.#searchMessage.setWrap(true);
-    this.#searchMessage.setMarginTop(8);
+    this.#searchMessage.setMarginTop(4);
+    this.#searchMessage.setMarginBottom(4);
+    this.#searchMessage.setMarginStart(16);
+    this.#searchMessage.setMarginEnd(16);
     this.#searchMessage.addCssClass("dim-label");
     this.#searchMessage.setVisible(false);
-    searchBox.append(this.#searchMessage);
-    contentBox.append(searchBox);
+    contentBox.append(this.#searchMessage);
 
     // Results List
     this.#scrolledWindow = new ScrolledWindow();
     this.#scrolledWindow.setProperty("vexpand", true);
     this.#scrolledWindow.setProperty("hscrollbar-policy", 2); // GTK_POLICY_NEVER
+    this.#scrolledWindow.setProperty("propagate-natural-height", true);
+    this.#scrolledWindow.setProperty("max-content-height", 350);
+    this.#scrolledWindow.setVisible(false);
 
     this.#listBox = new ListBox();
+    this.#listBox.addCssClass("dg-results");
     this.#listBox.setProperty("selection-mode", 1);
     this.#listBox.setMarginTop(0);
-    this.#listBox.setMarginBottom(12);
+    this.#listBox.setMarginBottom(8);
     this.#listBox.setMarginStart(12);
     this.#listBox.setMarginEnd(12);
 
@@ -568,7 +641,30 @@ class DGApp {
     this.#modelLabel.setHalign(Align.END);
     this.#bottomBox.append(this.#modelLabel);
 
-    toolbarView.addBottomBar(this.#bottomBox);
+    const footer = this.#footer = new Box(Orientation.VERTICAL, 0);
+    footer.addCssClass("dg-footer");
+    footer.setVisible(false);
+    footer.append(this.#bottomBox);
+    const shortcuts = new Box(Orientation.HORIZONTAL, 0);
+    shortcuts.setMarginTop(8);
+    shortcuts.setMarginBottom(8);
+    shortcuts.setMarginStart(16);
+    shortcuts.setMarginEnd(16);
+    const hide = new Box(Orientation.HORIZONTAL, 6);
+    const escapeKey = new Label("Esc");
+    escapeKey.addCssClass("dg-keycap");
+    hide.append(escapeKey);
+    hide.append(new Label("Hide"));
+    hide.setHexpand(true);
+    shortcuts.append(hide);
+    const settings = new Box(Orientation.HORIZONTAL, 6);
+    const preferencesKey = new Label("Ctrl+,");
+    preferencesKey.addCssClass("dg-keycap");
+    settings.append(preferencesKey);
+    settings.append(new Label("Preferences"));
+    shortcuts.append(settings);
+    footer.append(shortcuts);
+    toolbarView.addBottomBar(footer);
 
     this.#win.setContent(toolbarView);
 
@@ -759,6 +855,7 @@ class DGApp {
       for (const msg of this.#aiMessages) {
         this.#updateAiDisplay(msg.role, msg.content);
       }
+      this.#queueLauncherLayout();
     }
   }
 
@@ -789,7 +886,7 @@ class DGApp {
 
     this.#aiMode = true;
     this.#aiText = "";
-    this.#setLoading(true, "AI is thinking...");
+    this.#setLoading(true, "Thinking…");
     this.#updateAiPlaceholder();
     this.#showModelInStatus();
 
@@ -811,29 +908,12 @@ class DGApp {
     const callbacks = {
       onText: (text: string) => {
         if (signal.aborted) return;
-        console.log("[Main] onText received:", text.slice(0, 50));
+        this.#setLoading(true, "Writing reply…");
         this.#aiText += text;
         this.#updateAiDisplay("assistant");
       },
-      onToolRequest: (tool: string, args: Record<string, unknown>) => {
-        if (signal.aborted) return;
-        console.log("[Main] onToolRequest:", tool, args);
-        // Save current thinking before clearing for tool output
-        if (this.#aiText) {
-          this.#aiMessages.push({ role: "assistant", content: this.#aiText });
-        }
-        this.#aiText = ""; // Clear for next assistant block
-        // Silently handle - don't show popup
-      },
-      onToolResult: (result: string) => {
-        if (signal.aborted) return;
-        console.log("[Main] onToolResult:", result.slice(0, 50));
-        this.#aiMessages.push({
-          role: "assistant",
-          content: `[Tool Output] ${result}`,
-        });
-        this.#aiText = ""; // Clear for next assistant block
-        this.#updateAiDisplay("assistant", `[Tool Output] ${result}`);
+      onActivity: (message: string) => {
+        if (!signal.aborted) this.#setLoading(true, message);
       },
       onDone: () => {
         if (signal.aborted) return;
@@ -872,78 +952,46 @@ class DGApp {
   }
 
   #updateAiDisplay(
-    role: "user" | "assistant" | "tool" = "assistant",
+    role: "user" | "assistant" = "assistant",
     text?: string,
   ) {
-    if (!this.#listBox) return;
-
+    const list = this.#listBox;
     const content = text || this.#aiText;
-    if (!content) return;
+    if (!list || !content) return;
 
-    const row = new ListBoxRow();
-    const mainBox = new Box(Orientation.VERTICAL, 4);
-    mainBox.setMarginTop(8);
-    mainBox.setMarginBottom(8);
-    mainBox.setMarginStart(12);
-    mainBox.setMarginEnd(12);
-
-    const label = new Label("");
-    label.setProperty("xalign", 0);
-    label.setProperty("wrap", true);
-    label.setProperty("wrap-mode", 2); // WORD
-    label.setProperty("width-chars", 50);
-
-    let bgColor = "";
-    let prefix = "";
-    let opacity = "100%";
-
-    if (role === "user") {
-      bgColor = "rgba(100, 100, 255, 0.1)";
-      prefix = "<b>You:</b> ";
-    } else if (role === "tool") {
-      bgColor = "rgba(150, 150, 150, 0.1)";
-      prefix = "<i>[Tool]</i> ";
-      opacity = "80%";
-    } else {
-      prefix = "<b>AI:</b> ";
+    let label: Label | undefined;
+    if (role === "assistant") {
+      const lastRow = list.getLastChild() as ListBoxRow | null;
+      const lastBox = lastRow?.getChild() as Box | undefined;
+      const previous = lastBox?.getFirstChild() as Label | undefined;
+      if (previous?.getText().startsWith("AI: ")) label = previous;
     }
 
-    const markup = this.#convertToPango(content);
-    label.setMarkup(
-      `<span alpha="${opacity}">${prefix}${markup}</span>`,
-    );
+    if (!label) {
+      const row = new ListBoxRow();
+      row.setProperty("activatable", false);
+      row.setProperty("selectable", false);
+      row.addCssClass("dg-ai-turn");
+      if (role === "user") row.addCssClass("dg-ai-question");
 
-    if (bgColor) {
-      // We can't easily set background color of a Box without CSS in GTK4
-      // but we can at least style the text differently.
-      // For now, let's just use the prefix and opacity.
+      const box = new Box(Orientation.VERTICAL, 4);
+      box.setMarginTop(8);
+      box.setMarginBottom(8);
+      box.setMarginStart(12);
+      box.setMarginEnd(12);
+      label = new Label("");
+      label.setXalign(0);
+      label.setWrap(true);
+      label.setProperty("wrap-mode", 2); // WORD
+      label.setProperty("width-chars", 50);
+      box.append(label);
+      row.setChild(box);
+      list.append(row);
     }
 
-    mainBox.append(label);
-    row.setChild(mainBox);
-
-    // If assistant is streaming, we update the LAST row if it's an assistant row
-    const lastRow = this.#listBox.getLastChild() as ListBoxRow | null;
-    let updated = false;
-
-    if (role === "assistant" && lastRow) {
-      const lastBox = lastRow.getChild() as Box;
-      const lastLabel = lastBox.getFirstChild() as Label;
-      const lastText = lastLabel.getText();
-
-      // Check if it's an assistant row (starts with AI:)
-      // Note: getText() returns the plain text without markup
-      if (lastText.startsWith("AI: ")) {
-        lastLabel.setMarkup(
-          `<span alpha="${opacity}">${prefix}${markup}</span>`,
-        );
-        updated = true;
-      }
-    }
-
-    if (!updated) {
-      this.#listBox.append(row);
-    }
+    const speaker = role === "user" ? "You" : "AI";
+    label.setMarkup(`<b>${speaker}:</b> ${this.#convertToPango(content)}`);
+    this.#queueLauncherLayout();
 
     // Auto-scroll to bottom
     const adjustment = this.#scrolledWindow?.getVadjustment();
@@ -1048,12 +1096,19 @@ class DGApp {
   #updateSearch(query: string) {
     this.#cancelTriggeredSearch();
     const searchId = ++this.#latestSearchId;
-    const pathQuery = isPathQuery(query);
-    const command = this.#terminalCommand(query);
-    const t0 = DEBUG ? performance.now() : 0;
     this.#setLoading(false);
     this.#searchMessage?.setVisible(false);
 
+    if (!query.trim()) {
+      this.#currentResults = [];
+      this.#currentResultsQuery = query;
+      this.#renderList([]);
+      return;
+    }
+
+    const pathQuery = isPathQuery(query);
+    const command = this.#terminalCommand(query);
+    const t0 = DEBUG ? performance.now() : 0;
     let results: SearchResult[] = [];
 
     const parts = query.split(" ");
@@ -1125,6 +1180,7 @@ class DGApp {
       if (searchId === this.#latestSearchId && message) {
         this.#searchMessage?.setText(message);
         this.#searchMessage?.setVisible(true);
+        this.#queueLauncherLayout();
       }
     };
 
@@ -1216,42 +1272,48 @@ class DGApp {
       child = next;
     }
 
+    let firstRow: ListBoxRow | undefined;
     for (const result of results) {
       const row = new ListBoxRow();
+      row.addCssClass("dg-result");
+      firstRow ??= row;
 
-      const mainBox = new Box(Orientation.HORIZONTAL, 12);
-      mainBox.setMarginTop(8);
-      mainBox.setMarginBottom(8);
-      mainBox.setMarginStart(10);
+      const mainBox = new Box(Orientation.HORIZONTAL, 11);
+      mainBox.setMarginTop(6);
+      mainBox.setMarginBottom(6);
+      mainBox.setMarginStart(12);
       mainBox.setMarginEnd(10);
 
-      if (result.icon) {
-        mainBox.append(createIcon(result.icon));
-      }
+      const icon = createIcon(
+        result.icon || "application-x-executable-symbolic",
+      );
+      icon.setPixelSize(26);
+      mainBox.append(icon);
 
-      const textBox = new Box(Orientation.VERTICAL, 4);
+      const textBox = new Box(Orientation.VERTICAL, 2);
+      textBox.setHexpand(true);
+      textBox.setValign(Align.CENTER);
 
       const titleLabel = new Label(result.title);
-      titleLabel.setProperty("xalign", 0);
-      titleLabel.setProperty("ellipsize", 3);
-      titleLabel.setMarkup(`<b>${this.#escapeMarkup(result.title)}</b>`);
-
-      const subtitleLabel = new Label(result.subtitle);
-      subtitleLabel.setProperty("xalign", 0);
-      subtitleLabel.setProperty("ellipsize", 3);
-      subtitleLabel.setMarkup(
-        `<span size="small" alpha="50%">${
-          this.#escapeMarkup(result.subtitle)
-        }</span>`,
-      );
-
+      titleLabel.setXalign(0);
+      titleLabel.setEllipsize(3);
+      titleLabel.addCssClass("dg-result-title");
       textBox.append(titleLabel);
-      textBox.append(subtitleLabel);
+
+      if (result.subtitle) {
+        const subtitleLabel = new Label(result.subtitle);
+        subtitleLabel.setXalign(0);
+        subtitleLabel.setEllipsize(3);
+        subtitleLabel.addCssClass("dg-result-subtitle");
+        textBox.append(subtitleLabel);
+      }
 
       mainBox.append(textBox);
       row.setChild(mainBox);
       this.#listBox.append(row);
     }
+    if (firstRow) this.#listBox.selectRow(firstRow);
+    this.#queueLauncherLayout();
     if (DEBUG) {
       debug(
         `[Render] ${results.length} rows: ${
@@ -1334,6 +1396,11 @@ class DGApp {
       Deno.exit(0);
     }
 
+    try {
+      this.#appearance = await this.#loader.configManager.getAppearance();
+    } catch (error) {
+      console.warn("Could not load DG appearance settings:", error);
+    }
     await this.#eventLoop.start(this.#app);
   }
 

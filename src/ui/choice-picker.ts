@@ -12,6 +12,8 @@ import {
   type Window,
 } from "@sigmasd/gtk/gtk4";
 
+import { styleWindow } from "./launcher-theme.ts";
+
 export interface Choice {
   id: string;
   title: string;
@@ -43,7 +45,9 @@ export function showChoicePicker<T extends Choice>(
   window.setDefaultSize(430, options.searchPlaceholder ? 430 : 215);
 
   const toolbar = new ToolbarView();
-  toolbar.addTopBar(new HeaderBar());
+  const header = new HeaderBar();
+  styleWindow(window, toolbar, header);
+  toolbar.addTopBar(header);
   window.setContent(toolbar);
 
   const content = new Box(Orientation.VERTICAL, 12);

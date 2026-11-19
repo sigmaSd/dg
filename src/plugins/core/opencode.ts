@@ -42,6 +42,8 @@ export function opencodePermissions(settings?: OpencodeToolsConfig) {
     shell: tools.bash,
     subagent: tools.task,
     external_directory: tools.external_directory,
+    websearch: tools.websearch === true,
+    webfetch: tools.webfetch === true,
   };
   return [
     { action: "*", resource: "*", effect: "deny" },
@@ -107,12 +109,8 @@ export interface RunEvent {
   part?: {
     text?: string;
     tool?: string;
-    callID?: string;
     state?: {
       status?: string;
-      input?: Record<string, unknown>;
-      output?: string;
-      error?: string;
     };
   };
 }
@@ -144,6 +142,9 @@ export class Opencode {
       await Deno.writeTextFile(
         join(config, "opencode.json"),
         JSON.stringify({
+          websearch: tools?.websearch === true
+            ? { provider: "tinyfish" }
+            : false,
           agents: {
             [agent]: {
               description: "DG Launcher assistant",

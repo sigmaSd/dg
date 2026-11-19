@@ -18,6 +18,11 @@ import {
 import type { PluginControl } from "../loader.ts";
 import { terminalShortcut } from "../plugins/core/terminal.ts";
 import { createIcon } from "./choice-picker.ts";
+import {
+  type AppearancePreferencesOptions,
+  createAppearancePreferences,
+} from "./appearance-preferences.ts";
+import { styleWindow } from "./launcher-theme.ts";
 
 export interface PluginPreferencesPage {
   icon: string;
@@ -36,6 +41,7 @@ export function openPreferences(
   app: Application,
   plugins: readonly PluginControl[],
   pages: ReadonlyMap<string, PluginPreferencesPage>,
+  appearance: AppearancePreferencesOptions,
   setEnabled: (key: string, enabled: boolean, window: Window) => Promise<void>,
   setTrigger: (key: string, trigger: string) => Promise<void>,
   onClosed: () => void,
@@ -52,12 +58,13 @@ export function openPreferences(
 
   const toolbar = new ToolbarView();
   const header = new HeaderBar();
+  styleWindow(window, toolbar, header);
   toolbar.addTopBar(header);
   window.setContent(toolbar);
 
   const back = new Button();
   back.setIconName("go-previous-symbolic");
-  back.setTooltipText("Back to Plugins");
+  back.setTooltipText("Back to Preferences");
   back.setVisible(false);
   header.packStart(back);
 
@@ -69,6 +76,10 @@ export function openPreferences(
   overview.setMarginStart(20);
   overview.setMarginEnd(20);
   content.append(overview);
+
+  const appearanceButton = new Button("Appearance");
+  appearanceButton.setHalign(Align.START);
+  overview.append(appearanceButton);
 
   const heading = new Label("Plugins");
   heading.addCssClass("title-2");
@@ -93,19 +104,41 @@ export function openPreferences(
   let pendingChanges = 0;
   let active: Widget | undefined;
   let activeOptions: Button | undefined;
+  let leavePanel: (() => void) | undefined;
   const panels = new Map<string, Widget>();
   const setBusy = (value: boolean) => {
     pendingChanges += value ? 1 : -1;
     back.setSensitive(pendingChanges === 0);
   };
+  const showPanel = (panel: Widget, title: string, options: Button) => {
+    active = panel;
+    activeOptions = options;
+    overview.setVisible(false);
+    active.setVisible(true);
+    window.setTitle(title);
+    back.setVisible(true);
+    back.grabFocus();
+  };
+  const appearancePanel = createAppearancePreferences(appearance, setBusy);
+  appearancePanel.view.setVisible(false);
+  content.append(appearancePanel.view);
+  appearanceButton.onClick(() => {
+    if (pendingChanges) return;
+    leavePanel = appearancePanel.restore;
+    showPanel(appearancePanel.view, "Appearance", appearanceButton);
+  });
+
   window.onCloseRequest(() => {
     if (pendingChanges) return true;
+    leavePanel?.();
     onClosed();
     return false;
   });
 
   back.onClick(() => {
     if (pendingChanges) return;
+    leavePanel?.();
+    leavePanel = undefined;
     active?.setVisible(false);
     active = undefined;
     back.setVisible(false);
@@ -193,13 +226,7 @@ export function openPreferences(
           panels.set(plugin.key, panel);
           content.append(panel);
         }
-        active = panel;
-        activeOptions = options;
-        overview.setVisible(false);
-        active.setVisible(true);
-        window.setTitle(plugin.title);
-        back.setVisible(true);
-        back.grabFocus();
+        showPanel(panel, plugin.title, options);
       });
       box.append(options);
     }

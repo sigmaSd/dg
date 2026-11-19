@@ -1,4 +1,4 @@
-import { join } from "@std/path";
+import { dirname, join } from "@std/path";
 import type { PluginPermissions } from "./plugins/interface.ts";
 
 export interface PluginEntry {
@@ -17,6 +17,8 @@ export interface OpencodeToolsConfig {
   glob?: boolean;
   task?: boolean;
   external_directory?: boolean;
+  websearch?: boolean;
+  webfetch?: boolean;
 }
 
 export interface OpencodeConfig {
@@ -34,6 +36,8 @@ export const defaultOpencodeTools: Readonly<Required<OpencodeToolsConfig>> = {
   bash: false,
   task: false,
   external_directory: false,
+  websearch: false,
+  webfetch: false,
 };
 
 export interface Config {
@@ -41,7 +45,38 @@ export interface Config {
   opencode?: OpencodeConfig;
 }
 
+export const glassColors = ["ocean", "iris", "ember", "graphite"] as const;
+export type GlassColor = typeof glassColors[number];
+
+export interface AppearanceSettings {
+  theme: "glass" | "system";
+  color: GlassColor;
+  transparency: number;
+}
+
+export const maxTransparency = 45;
+export const defaultAppearance: Readonly<AppearanceSettings> = {
+  theme: "glass",
+  color: "ocean",
+  transparency: 20,
+};
+
+export function normalizeAppearance(value: unknown): AppearanceSettings {
+  const settings = value as Partial<AppearanceSettings> | null;
+  const transparency = settings?.transparency;
+  return {
+    theme: settings?.theme === "system" ? "system" : defaultAppearance.theme,
+    color: glassColors.find((color) => color === settings?.color) ??
+      defaultAppearance.color,
+    transparency:
+      typeof transparency === "number" && Number.isFinite(transparency)
+        ? Math.max(0, Math.min(maxTransparency, Math.round(transparency)))
+        : defaultAppearance.transparency,
+  };
+}
+
 export class ConfigManager {
+  #appearancePath: string;
   #configPath: string;
   #settingsDir: string;
 
@@ -56,6 +91,7 @@ export class ConfigManager {
     }
 
     const dgDir = join(baseDir, "dg");
+    this.#appearancePath = join(dgDir, "appearance.json");
     this.#configPath = join(dgDir, "plugins.json");
     this.#settingsDir = join(dgDir, "settings");
   }
@@ -73,6 +109,26 @@ export class ConfigManager {
 
   async getPluginSettings(id: string): Promise<unknown> {
     const file = join(this.#settingsDir, `${encodeURIComponent(id)}.json`);
+    return await this.#readSettings(file);
+  }
+
+  async setPluginSettings(id: string, value: unknown): Promise<void> {
+    const file = join(this.#settingsDir, `${encodeURIComponent(id)}.json`);
+    await this.#writeSettings(file, value);
+  }
+
+  async getAppearance(): Promise<AppearanceSettings> {
+    return normalizeAppearance(await this.#readSettings(this.#appearancePath));
+  }
+
+  async setAppearance(settings: AppearanceSettings): Promise<void> {
+    await this.#writeSettings(
+      this.#appearancePath,
+      normalizeAppearance(settings),
+    );
+  }
+
+  async #readSettings(file: string): Promise<unknown> {
     try {
       return JSON.parse(await Deno.readTextFile(file));
     } catch (error) {
@@ -80,12 +136,12 @@ export class ConfigManager {
     }
   }
 
-  async setPluginSettings(id: string, value: unknown): Promise<void> {
+  async #writeSettings(file: string, value: unknown): Promise<void> {
     const json = JSON.stringify(value, null, 2);
     if (json === undefined) throw new TypeError("Plugin settings must be JSON");
-    const file = join(this.#settingsDir, `${encodeURIComponent(id)}.json`);
-    await Deno.mkdir(this.#settingsDir, { recursive: true });
-    const temp = await Deno.makeTempFile({ dir: this.#settingsDir });
+    const dir = dirname(file);
+    await Deno.mkdir(dir, { recursive: true });
+    const temp = await Deno.makeTempFile({ dir });
     try {
       await Deno.writeTextFile(temp, `${json}\n`);
       await Deno.rename(temp, file);

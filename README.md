@@ -55,6 +55,10 @@ deno task start
 Use `Ctrl+Q` to quit the application completely, or `Escape` to hide it to the
 background.
 
+Open **Preferences → Appearance** to choose Glass or the system theme. Glass has
+its own color and transparency controls. Changes preview in the launcher and
+Preferences. Choose **Save Appearance** to keep them.
+
 Open **Preferences → Plugins** from the gear icon or with `Ctrl+,` to turn
 built-in or installed plugins on or off. Switches apply immediately. Turning a
 plugin off keeps its settings and permission approvals.
@@ -129,6 +133,8 @@ optional and opt-in.
    - `edit` and `write` share one OpenCode 2 permission. Enable both to allow
      file changes.
    - `bash`, `task` - **Disabled by default** (require explicit enable)
+   - `websearch` enables search through TinyFish, and `webfetch` lets OpenCode
+     read web pages. Both are off by default.
    - `external_directory` - Controls access outside DG's AI workspace
 
 ### Usage

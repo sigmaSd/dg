@@ -11,11 +11,24 @@ interface StreamOptions {
 
 interface StreamCallback {
   onText: (text: string) => void;
-  onToolRequest: (tool: string, args: Record<string, unknown>) => void;
-  onToolResult: (result: string) => void;
+  onActivity: (message: string) => void;
   onDone: () => void;
   onError: (error: string) => void;
-  onClearThoughts?: () => void;
+}
+
+function toolActivity(tool: string, status?: string): string {
+  if (status === "error") return "A tool failed. Continuing…";
+  if (tool === "websearch") {
+    return status === "completed"
+      ? "Reviewing search results…"
+      : "Searching the web…";
+  }
+  if (tool === "webfetch") {
+    return status === "completed"
+      ? "Reading a web page…"
+      : "Opening a web page…";
+  }
+  return status === "completed" ? "Reviewing tool results…" : "Using a tool…";
 }
 
 export class AiSource implements Source {
@@ -88,7 +101,6 @@ export class AiSource implements Source {
       const prompt = clipboard
         ? `User clipboard: ${clipboard}\n\n${query}`
         : query;
-      const calls = new Set<string>();
       for await (
         const event of opencode.run(prompt, {
           model: this.#selectedModel,
@@ -102,22 +114,8 @@ export class AiSource implements Source {
         if (event.type === "text" && part?.text) {
           callbacks.onText(part.text);
           yield part.text;
-        } else if (event.type === "tool_use" && part?.tool && part.state) {
-          if (!part.callID || !calls.has(part.callID)) {
-            if (part.callID) calls.add(part.callID);
-            callbacks.onToolRequest(part.tool, part.state.input ?? {});
-          }
-          if (part.state.status === "completed") {
-            callbacks.onToolResult(
-              `Output: ${(part.state.output ?? "").slice(0, 200)}`,
-            );
-          } else if (part.state.status === "error") {
-            callbacks.onToolResult(
-              `Error: ${part.state.error ?? "Unknown error"}`,
-            );
-          }
-        } else if (event.type === "step_finish") {
-          callbacks.onClearThoughts?.();
+        } else if (event.type === "tool_use" && part?.tool) {
+          callbacks.onActivity(toolActivity(part.tool, part.state?.status));
         } else if (event.type === "error") {
           const error = event.error;
           throw new Error(

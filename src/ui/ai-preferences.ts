@@ -17,6 +17,8 @@ import { Opencode } from "../plugins/core/opencode.ts";
 import { showChoicePicker } from "./choice-picker.ts";
 
 const toolNames: Record<Exclude<keyof OpencodeToolsConfig, "write">, string> = {
+  websearch: "Search the web (TinyFish)",
+  webfetch: "Open web pages",
   read: "Read files",
   grep: "Search file contents",
   glob: "Find files by name",

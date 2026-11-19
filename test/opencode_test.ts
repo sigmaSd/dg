@@ -76,3 +76,14 @@ Deno.test("OpenCode 2 tool rules preserve the legacy switches", () => {
     "allow",
   );
 });
+
+Deno.test("OpenCode web tools are independent opt-ins", () => {
+  const effects = (settings?: Parameters<typeof opencodePermissions>[0]) =>
+    opencodePermissions(settings)
+      .filter(({ action }) => action === "websearch" || action === "webfetch")
+      .map(({ effect }) => effect);
+
+  assertEquals(effects(), ["deny", "deny"]);
+  assertEquals(effects({ websearch: true }), ["allow", "deny"]);
+  assertEquals(effects({ webfetch: true }), ["deny", "allow"]);
+});
