@@ -1,22 +1,30 @@
 # DG Launcher
 
-A modern, extensible application launcher built with Deno and GTK.
+A GTK launcher for opening apps and files and running terminal commands. DG
+starts as a single search bar and expands as results appear. AI is optional and
+off by default.
 
-<img src="./distro/demo.png" />
+| Search bar                                                                     | Search results                                                 |
+| ------------------------------------------------------------------------------ | -------------------------------------------------------------- |
+| ![DG opens as a compact translucent search bar](./distro/launcher-compact.png) | ![DG expands to show four notebook matches](./distro/demo.png) |
+
+[DG 2.0 release notes and screenshots](https://github.com/sigmaSd/dg/releases/tag/v2.0.0)
 
 ## Installation
 
-Install the launcher globally using Deno:
+Download a build for Linux (x86-64), macOS (Apple Silicon or Intel), or Windows.
+On Windows, extract `dg-windows.zip` and run `dg.exe` from the extracted folder.
+The ZIP includes GTK and libadwaita.
+[Downloads](https://github.com/sigmaSd/dg/releases/latest)
+
+With [Deno](https://deno.com/), GTK 4, and libadwaita installed, you can install
+DG globally:
 
 ```bash
 deno install -gA --unstable-kv --unstable-worker-options jsr:@sigmasd/dg
 ```
 
-Once installed, you can launch it using the `dg` command.
-
-Alternatively, you can download pre-built binaries from the
-[Releases](https://github.com/sigmaSd/dg/releases) page, including a **portable
-Windows version** that bundles the GTK runtime.
+Launch it with the `dg` command.
 
 > **Tip**: For the best experience, add a global shortcut in your Desktop
 > Environment (e.g., `Super+D`) to the `dg` command. Since the application stays
@@ -34,15 +42,17 @@ Windows version** that bundles the GTK runtime.
   when you need it.
 - **Built-in Tools**: Comes with an application launcher, calculator, Firefox
   history search, and a built-in plugin store to discover community extensions.
-- **AI Assistant** (optional): Integrated OpenCode AI to answer questions
-  directly from the launcher.
+- **Appearance**: A translucent Glass theme with four colors and adjustable
+  transparency, plus a System theme.
+- **AI Assistant** (optional): Ask questions with OpenCode 2, choose a model,
+  and enable web tools from Preferences.
 
 ## Getting Started
 
 ### Prerequisites
 
 - [Deno](https://deno.com/)
-- GTK4 libraries
+- GTK 4 and libadwaita
 
 ### Running
 
@@ -55,9 +65,10 @@ deno task start
 Use `Ctrl+Q` to quit the application completely, or `Escape` to hide it to the
 background.
 
-Open **Preferences → Appearance** to choose Glass or the system theme. Glass has
-its own color and transparency controls. Changes preview in the launcher and
-Preferences. Choose **Save Appearance** to keep them.
+Open **Preferences → Appearance** to choose Glass or follow the system theme.
+Glass comes in Ocean, Iris, Ember, and Graphite, with a transparency slider.
+Changes preview in the launcher and Preferences. Choose **Save Appearance** to
+keep them.
 
 Open **Preferences → Plugins** from the gear icon or with `Ctrl+,` to turn
 built-in or installed plugins on or off. Switches apply immediately. Turning a
@@ -104,8 +115,9 @@ goes directly before the command. A custom word shortcut is followed by a space.
 
 ## AI Assistant
 
-DG includes an AI assistant powered by OpenCode. This feature is completely
-optional and opt-in.
+AI Assistant is off by default. OpenCode 2 is only required for this optional
+plugin. While a reply is in progress, the status bar shows activity such as
+“Reading a web page…”.
 
 ### Prerequisites
 
@@ -113,8 +125,9 @@ optional and opt-in.
    for the executable on your `PATH` and in `~/.opencode/bin`.
 
 2. **Enable AI Assistant** in **Preferences → Plugins**. Its **Settings** page
-   controls the trigger, OpenCode model, and tool access. You can also customize
-   tool permissions in `~/.config/dg/plugins.json`:
+   controls the trigger, OpenCode model, and tool access. Under **Tool Access**,
+   turn on **Search the web (TinyFish)** or **Open web pages** as needed. You
+   can also customize tool permissions in `~/.config/dg/plugins.json`:
 
    ```json
    {
@@ -189,7 +202,7 @@ export default class MyPlugin extends WorkerPlugin {
 }
 ```
 
-## Release dependency checks
+## Preparing a release
 
 Run these checks from the repository root before publishing.
 
@@ -200,3 +213,7 @@ deno audit --frozen
 
 Review available updates and security advisories. After changing dependencies,
 rerun `deno test --frozen test/` and commit the updated `deno.lock`.
+
+Commit release screenshots under `distro/` and embed them in the release notes
+using raw GitHub URLs pinned to the commit that contains the images. Keep the
+release assets list for downloadable builds.
