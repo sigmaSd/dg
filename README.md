@@ -4,9 +4,9 @@ A GTK launcher for opening apps and files and running terminal commands. DG
 starts as a single search bar and expands as results appear. AI is optional and
 off by default.
 
-| Search bar                                                                     | Search results                                                 |
-| ------------------------------------------------------------------------------ | -------------------------------------------------------------- |
-| ![DG opens as a compact translucent search bar](./distro/launcher-compact.png) | ![DG expands to show four notebook matches](./distro/demo.png) |
+| Search bar                                                                     | Search results                                                             |
+| ------------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
+| ![DG opens as a compact translucent search bar](./distro/launcher-compact.png) | ![DG expands to show four notebook matches](./distro/launcher-results.png) |
 
 [DG 2.0 release notes and screenshots](https://github.com/sigmaSd/dg/releases/tag/v2.0.0)
 
