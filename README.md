@@ -65,6 +65,9 @@ deno task start
 Use `Ctrl+Q` to quit the application completely, or `Escape` to hide it to the
 background.
 
+Press `Down` and `Up` (or `Ctrl+N` and `Ctrl+P`) to move through the results
+while you keep typing, and `Enter` to open the highlighted one.
+
 Open **Preferences → Appearance** to choose Glass or follow the system theme.
 Glass comes in Ocean, Iris, Ember, and Graphite, with a transparency slider.
 Changes preview in the launcher and Preferences. Choose **Save Appearance** to
@@ -152,7 +155,9 @@ plugin. While a reply is in progress, the status bar shows activity such as
 
 ### Usage
 
-1. Type `ai <your question>` and press Enter to get an AI response.
+1. Type `ai <your question>` and press Enter to get an AI response. Type a
+   follow-up and press Enter to continue the conversation. `Up` and `Down`
+   scroll it.
 
 2. **Include clipboard context**: Use `$clipboard` or `$cb` in your query to
    include the current clipboard content in the AI's context:

@@ -10,12 +10,14 @@ import {
   Box,
   Button,
   Entry,
+  EventControllerKey,
   HeaderBar,
   Image,
   Label,
   ListBox,
   ListBoxRow,
   Orientation,
+  PropagationPhase,
   ScrolledWindow,
 } from "@sigmasd/gtk/gtk4";
 import {
@@ -43,6 +45,7 @@ import {
 import type { OpencodeModel } from "./plugins/core/opencode.ts";
 import { createIcon } from "./ui/choice-picker.ts";
 import { LauncherTheme, styleWindow } from "./ui/launcher-theme.ts";
+import { resultStep } from "./ui/result-keys.ts";
 import { createGtkDesktopLaunch } from "./ui/desktop-launch.ts";
 import { createPathPreferences } from "./ui/path-preferences.ts";
 import {
@@ -87,6 +90,8 @@ class DGApp {
   #aiSource?: AiSource;
   #currentResults: SearchResult[] = [];
   #currentResultsQuery?: string;
+  /** Result picked with the arrow keys. Cleared whenever the query changes. */
+  #selectedResult?: SearchResult;
   #runningTerminalCommand = false;
   #latestSearchId = 0;
   #pendingTriggeredSearch?: {
@@ -142,7 +147,7 @@ class DGApp {
       if (this.#aiMode) {
         this.#updateAiPlaceholder();
         this.#showModelInStatus();
-        // Re-render AI conversation (last one only)
+        // Re-render the whole AI conversation
         if (this.#listBox) {
           let child = this.#listBox.getFirstChild();
           while (child) {
@@ -151,19 +156,13 @@ class DGApp {
             child = next;
           }
         }
-        const lastUserIndex = this.#aiMessages.map((m) => m.role).lastIndexOf(
-          "user",
-        );
-        if (lastUserIndex !== -1) {
-          const lastConversation = this.#aiMessages.slice(lastUserIndex);
-          for (const msg of lastConversation) {
-            this.#updateAiDisplay(msg.role, msg.content);
-          }
+        for (const msg of this.#aiMessages) {
+          this.#updateAiDisplay(msg.role, msg.content);
         }
         if (this.#aiText) {
           this.#updateAiDisplay("assistant");
         }
-        this.#resetAiEntry();
+        this.#restoreAiEntry();
       } else {
         this.#searchEntry?.selectRegion(0, -1);
       }
@@ -496,6 +495,7 @@ class DGApp {
     this.#searchEntry.setHexpand(true);
     this.#resetPlaceholder();
     this.#searchEntry.onChanged(() => {
+      this.#selectedResult = undefined;
       this.#cancelTriggeredSearch();
       ++this.#latestSearchId;
       this.#currentResultsQuery = undefined;
@@ -509,9 +509,19 @@ class DGApp {
         this.#onSearchChanged();
       }, 150);
     });
+    // Up and Down move through the results while focus stays in the entry,
+    // so typing keeps editing the query. Capture runs before the entry's
+    // own key handling, which would otherwise move focus into the list.
+    const resultKeys = new EventControllerKey();
+    resultKeys.setPropagationPhase(PropagationPhase.CAPTURE);
+    resultKeys.onKeyPressed((keyval, _keycode, state) => {
+      const step = resultStep(keyval, state);
+      return step !== 0 && this.#moveSelection(step);
+    });
+    this.#searchEntry.addController(resultKeys);
     this.#searchEntry.onActivate(() => {
       if (this.#modelMode) {
-        void this.#activateResult(0);
+        void this.#activateResult(this.#selectedIndex());
         return;
       }
       const query = this.#searchEntry?.getText() || "";
@@ -564,7 +574,7 @@ class DGApp {
           void this.#enterAiMode(processedQuery);
           this.#resetAiEntry();
         } else {
-          void this.#activateResult(0);
+          void this.#activateResult(this.#selectedIndex());
         }
       }
     });
@@ -867,6 +877,8 @@ class DGApp {
       console.log("[Main] Early return - no source or empty query");
       return;
     }
+    // A follow-up adds to the conversation already on screen.
+    const followUp = this.#aiMode;
 
     // Update placeholder to show current model
     this.#updateAiPlaceholder();
@@ -890,8 +902,8 @@ class DGApp {
     this.#updateAiPlaceholder();
     this.#showModelInStatus();
 
-    // Hide list, show streaming text
-    if (this.#listBox) {
+    // Replace the search results with the conversation
+    if (this.#listBox && !followUp) {
       let child = this.#listBox.getFirstChild();
       while (child) {
         const next = this.#listBox.getNextSibling(child);
@@ -925,7 +937,7 @@ class DGApp {
         if (this.#spinner) this.#spinner.setVisible(false);
         if (this.#statusLabel) this.#statusLabel.setText("");
         this.#showModelInStatus();
-        this.#resetAiEntry();
+        this.#restoreAiEntry();
         this.#updateAiPlaceholder();
       },
       onError: (error: string) => {
@@ -1063,6 +1075,16 @@ class DGApp {
     const prefix = this.#aiPrefix();
     this.#searchEntry?.setText(prefix);
     this.#searchEntry?.selectRegion(-1, -1);
+  }
+
+  /** Puts the AI prefix back, keeping any follow-up typed in the meantime. */
+  #restoreAiEntry() {
+    const text = this.#searchEntry?.getText() ?? "";
+    if (text.trim() && text.trim() !== this.#aiPrefix().trim()) {
+      this.#searchEntry?.selectRegion(-1, -1);
+      return;
+    }
+    this.#resetAiEntry();
   }
 
   #resetPlaceholder() {
@@ -1273,10 +1295,12 @@ class DGApp {
     }
 
     let firstRow: ListBoxRow | undefined;
+    let selectedRow: ListBoxRow | undefined;
     for (const result of results) {
       const row = new ListBoxRow();
       row.addCssClass("dg-result");
       firstRow ??= row;
+      if (result === this.#selectedResult) selectedRow = row;
 
       const mainBox = new Box(Orientation.HORIZONTAL, 11);
       mainBox.setMarginTop(6);
@@ -1312,8 +1336,13 @@ class DGApp {
       row.setChild(mainBox);
       this.#listBox.append(row);
     }
-    if (firstRow) this.#listBox.selectRow(firstRow);
+    // Later plugin results re-render the list; keep the user's pick if it is
+    // still there.
+    if (!selectedRow) this.#selectedResult = undefined;
+    const highlighted = selectedRow ?? firstRow;
+    if (highlighted) this.#listBox.selectRow(highlighted);
     this.#queueLauncherLayout();
+    if (selectedRow) this.#scrollToRow(selectedRow);
     if (DEBUG) {
       debug(
         `[Render] ${results.length} rows: ${
@@ -1344,8 +1373,63 @@ class DGApp {
       searchId === this.#latestSearchId && !this.#modelMode &&
       this.#searchEntry?.getText() === query
     ) {
-      await this.#activateResult(0);
+      await this.#activateResult(this.#selectedIndex());
     }
+  }
+
+  /** Index of the highlighted result, or the first result. */
+  #selectedIndex(): number {
+    const index = this.#selectedResult
+      ? this.#currentResults.indexOf(this.#selectedResult)
+      : -1;
+    return Math.max(index, 0);
+  }
+
+  /** Moves the highlight by `step` rows. Returns whether the key was used. */
+  #moveSelection(step: number): boolean {
+    if (this.#aiMode) return this.#scrollAiChat(step);
+    if (!this.#listBox) return false;
+    const count = this.#currentResults.length;
+    if (!count) return false;
+    const index = Math.min(
+      Math.max(this.#selectedIndex() + step, 0),
+      count - 1,
+    );
+    const row = this.#listBox.getRowAtIndex(index);
+    if (!row) return true;
+    this.#selectedResult = this.#currentResults[index];
+    this.#listBox.selectRow(row);
+    this.#scrollToRow(row);
+    return true;
+  }
+
+  /** Scrolls the AI conversation, keeping focus in the entry for follow-ups. */
+  #scrollAiChat(step: number): boolean {
+    const adjustment = this.#scrolledWindow?.getVadjustment();
+    if (!adjustment) return true;
+    const page = adjustment.getPageSize();
+    const bottom = Math.max(adjustment.getUpper() - page, 0);
+    // About three lines of text per press.
+    const value = adjustment.getValue() + step * 60;
+    adjustment.setValue(Math.min(Math.max(value, 0), bottom));
+    return true;
+  }
+
+  #scrollToRow(row: ListBoxRow) {
+    const list = this.#listBox;
+    const adjustment = this.#scrolledWindow?.getVadjustment();
+    if (!list || !adjustment) return;
+    // Wait for layout so new rows have their final positions.
+    setTimeout(() => {
+      const bounds = row.computeBounds(list);
+      if (!bounds) return;
+      const top = bounds.y;
+      const bottom = bounds.y + bounds.height;
+      const page = adjustment.getPageSize();
+      const value = adjustment.getValue();
+      if (top < value) adjustment.setValue(top);
+      else if (bottom > value + page) adjustment.setValue(bottom - page);
+    }, 0);
   }
 
   async #activateResult(index: number) {
